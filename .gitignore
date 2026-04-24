@@ -1,0 +1,25 @@
+# Zig
+.zig-cache/
+zig-out/
+zig-pkg/
+
+# Bun
+node_modules/
+
+# Agent scratch (not committed)
+.agent/scratch/
+.claude/logs/
+.claude/audit/
+
+# Fuzz outputs (corpora are versioned explicitly via .gitkeep)
+fuzz/out/
+
+# OS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+
+# Build report (scratch only)
+*.log

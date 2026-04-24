@@ -1,0 +1,19 @@
+{
+  "name": "claude-zig-quality",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agentic quality-management skeleton for Zig 0.16 projects. TS/Bun-first runtime.",
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "scripts": {
+    "verify:fast": "bun scripts/verify-fast.ts",
+    "verify:commit": "bun scripts/verify-commit.ts",
+    "verify:pr": "bun scripts/verify-pr.ts",
+    "verify:release": "bun scripts/verify-release.ts",
+    "eval": "bun scripts/eval.ts",
+    "api:check": "bun scripts/check-public-api.ts",
+    "api:write": "bun scripts/check-public-api.ts --write"
+  }
+}

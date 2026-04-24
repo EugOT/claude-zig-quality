@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "idioms": {
+    "min_pass_rate": 0.90
+  },
+  "allocator-discipline": {
+    "min_pass_rate": 0.90
+  },
+  "error-sets": {
+    "min_pass_rate": 0.90
+  },
+  "io-injection": {
+    "min_pass_rate": 0.85
+  }
+}

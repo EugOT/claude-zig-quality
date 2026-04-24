@@ -1,0 +1,6 @@
+[
+  {"name": "Allocator", "kind": "const"},
+  {"name": "Io", "kind": "const"},
+  {"name": "HelloError", "kind": "const"},
+  {"name": "hello", "kind": "fn"}
+]
