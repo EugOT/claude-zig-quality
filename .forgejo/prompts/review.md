@@ -20,7 +20,8 @@ Verify the PR against the four-tier gate semantics:
 1. **Per-turn** — formatting, ast-check sanity on changed files.
 2. **Per-commit** — commit-tier gate (`bun scripts/verify-commit.ts`).
 3. **Per-PR** — full PR gate (`bun scripts/verify-pr.sh`) and public-API
-   drift (`bun scripts/check-public-api.ts --diff`).
+   drift (`bun scripts/check-public-api.ts`; default mode diffs against
+   the baseline at `.zig-qm/public-api.txt`).
 4. **Per-release** — only verify boundary claims; do not run the release
    gate here.
 

@@ -93,8 +93,8 @@ isolation.
 | `std.mem.Allocator{}`                       | Always propagate, never construct                          |
 | `fs.File.reader()`                          | `fs.File.deprecatedReader()` in transitional code          |
 | `std.process.argsAlloc(alloc)`              | `std.process.argsAlloc(alloc)` (unchanged, `os.argv` gone) |
-| `std.BoundedArray`                          | Removed; roll your own if needed                           |
-| `std.LinearFifo`                            | Removed; use `std.fifo` variants                           |
+| `std.BoundedArray`                          | Removed in **0.15.1** (still gone in 0.16); roll your own  |
+| `std.LinearFifo`                            | Removed in **0.15.1** (still gone in 0.16); use `std.fifo` |
 | `b.addExecutable(.{ .root_source_file = f })` | `b.addExecutable(.{ .root_module = m })`                 |
 
 The verifier rejects any `pub` signature or hot-path body that uses
@@ -182,7 +182,7 @@ intentional non-use. The fitness engine flags tests that bypass
 
 Tests that compare structured output against an expected blob live in
 `testdata/`. The comparison function reads the expected blob from
-disk, and the update path is a single `ZIG_UPDATE_SNAPSHOTS=1`
+disk, and the update path is a single `ZIG_QM_UPDATE_SNAPSHOTS=1`
 environment flag.
 
 - File layout: `testdata/<module>/<test>.expected.txt`.

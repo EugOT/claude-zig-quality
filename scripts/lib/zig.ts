@@ -10,31 +10,35 @@
  *
  * Never trust bare PATH `zig` silently: §0.7 non-negotiable.
  */
-import { spawnSync, type SpawnResult, repoRoot } from "./runtime.ts";
+import { repoRoot, type SpawnResult, spawnSync } from "./runtime.ts";
 
 const TARGET_VERSION = "0.16.0";
 
 export function zig(args: string[]): SpawnResult {
-  const envZig = process.env.ZIG;
-  if (envZig && envZig.length > 0) {
-    return spawnSync([envZig, ...args]);
-  }
-  const hasMise = spawnSync(["command", "-v", "mise"]);
-  if (hasMise.code === 0) {
-    const root = repoRoot();
-    const trusted = [process.env.MISE_TRUSTED_CONFIG_PATHS, root]
-      .filter((s): s is string => !!s && s.length > 0)
-      .join(":");
-    return spawnSync(["mise", "x", `zig@${TARGET_VERSION}`, "--", "zig", ...args], {
-      env: { MISE_TRUSTED_CONFIG_PATHS: trusted },
-    });
-  }
-  return spawnSync(["zig", ...args]);
+	const envZig = process.env.ZIG;
+	if (envZig && envZig.length > 0) {
+		return spawnSync([envZig, ...args]);
+	}
+	// `command` is a shell builtin and cannot be exec'd by Bun.spawnSync;
+	// use Bun.which for binary lookups (CodeRabbit finding).
+	if (Bun.which("mise") !== null) {
+		const root = repoRoot();
+		const trusted = [process.env.MISE_TRUSTED_CONFIG_PATHS, root]
+			.filter((s): s is string => !!s && s.length > 0)
+			.join(":");
+		return spawnSync(
+			["mise", "x", `zig@${TARGET_VERSION}`, "--", "zig", ...args],
+			{
+				env: { MISE_TRUSTED_CONFIG_PATHS: trusted },
+			},
+		);
+	}
+	return spawnSync(["zig", ...args]);
 }
 
 export function zigVersion(): string {
-  const r = zig(["version"]);
-  return (r.stdout || "").trim();
+	const r = zig(["version"]);
+	return (r.stdout || "").trim();
 }
 
 /**
@@ -43,14 +47,14 @@ export function zigVersion(): string {
  * ZIG_QM_FORCE_FUZZ=1 to try anyway.
  */
 export function zigSupportsFuzz(): boolean {
-  if (process.env.ZIG_QM_FORCE_FUZZ === "1") return true;
-  const os = process.platform;
-  const v = zigVersion();
-  if (os === "darwin" && v === TARGET_VERSION) return false;
-  return true;
+	if (process.env.ZIG_QM_FORCE_FUZZ === "1") return true;
+	const os = process.platform;
+	const v = zigVersion();
+	if (os === "darwin" && v === TARGET_VERSION) return false;
+	return true;
 }
 
 export function zigFuzzSkipMessage(): string {
-  const v = zigVersion() || "unknown";
-  return `(native \`zig build fuzz\` skipped on ${process.platform} with Zig ${v}; upstream macOS fuzz support is incomplete in ziglang/zig#20986. Set ZIG_QM_FORCE_FUZZ=1 to attempt anyway.)`;
+	const v = zigVersion() || "unknown";
+	return `(native \`zig build fuzz\` skipped on ${process.platform} with Zig ${v}; upstream macOS fuzz support is incomplete in ziglang/zig#20986. Set ZIG_QM_FORCE_FUZZ=1 to attempt anyway.)`;
 }

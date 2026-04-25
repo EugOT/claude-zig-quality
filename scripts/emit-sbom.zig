@@ -31,7 +31,11 @@ pub fn main(init: std.process.Init) !u8 {
         return 2;
     };
 
-    const source = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .unlimited) catch |err| {
+    // build.zig.zon files are tiny; read with an explicit cap rather than
+    // .unlimited so a tampered/unbounded file cannot OOM the emitter
+    // (CodeRabbit finding). 1 MiB is far above any plausible manifest.
+    const MAX_ZON_BYTES: usize = 1 << 20;
+    const source = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(MAX_ZON_BYTES)) catch |err| {
         try printErrFmt(io, "cannot read {s}: {s}\n", .{ path, @errorName(err) });
         return 1;
     };
