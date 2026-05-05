@@ -18,21 +18,17 @@
  *   0 — pass
  *   1 — real failure (build mismatch, fuzz crash, reproducibility drift)
  */
+import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { appendJsonl, repoRoot, spawnSync, tail } from "./lib/runtime.ts";
-import { zig, zigFuzzSkipMessage, zigSupportsFuzz } from "./lib/zig.ts";
+import {
+	runFuzz,
+	zig,
+	zigFuzzSkipMessage,
+	zigSupportsFuzz,
+} from "./lib/zig.ts";
 
 const TIER = "release" as const;
-
-function cpuCount(): number {
-	try {
-		const { cpus } = require("node:os") as typeof import("node:os");
-		const n = cpus().length;
-		return n > 0 ? n : 4;
-	} catch {
-		return 4;
-	}
-}
 
 async function finish(code: number, startedAt: number): Promise<never> {
 	const durationMs = Date.now() - startedAt;
@@ -48,20 +44,17 @@ async function finish(code: number, startedAt: number): Promise<never> {
 function hasBuildStep(step: string): boolean {
 	const listing = zig(["build", "-l"]);
 	const text = `${listing.stdout}\n${listing.stderr}`;
-	const re = new RegExp(`^[\\s]+${step}[\\s]`, "m");
+	const escaped = step.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const re = new RegExp(`^[\\t ]*${escaped}(?:\\s|$)`, "m");
 	return re.test(text);
 }
 
-function cleanArtifacts(root: string): void {
-	spawnSync([
-		"rm",
-		"-rf",
-		resolve(root, ".zig-cache"),
-		resolve(root, "zig-out"),
-	]);
+async function cleanArtifacts(root: string): Promise<void> {
+	await rm(resolve(root, ".zig-cache"), { recursive: true, force: true });
+	await rm(resolve(root, "zig-out"), { recursive: true, force: true });
 }
 
-function hashZigOut(root: string): string {
+async function hashZigOut(root: string): Promise<string> {
 	const bin = resolve(root, "zig-out", "bin");
 	const glob = new Bun.Glob("*");
 	const files: string[] = [];
@@ -72,15 +65,13 @@ function hashZigOut(root: string): string {
 	}
 	if (files.length === 0) return "";
 	files.sort();
-	// Hash each file independently, then hash the concatenated digests. This
-	// is stable across runs because we sort by absolute path and the per-file
-	// digest is content-addressed.
+	// Bun-native hashing: feed each file's bytes into a sha256 stream so the
+	// digest is purely content-addressed and stable across runs without
+	// shelling out to `shasum`.
 	const hasher = new Bun.CryptoHasher("sha256");
 	for (const f of files) {
-		const r = spawnSync(["shasum", "-a", "256", f]);
-		if (r.code !== 0) return "";
-		const first = r.stdout.split(/\s+/, 1)[0] ?? "";
-		hasher.update(first);
+		const bytes = await Bun.file(f).arrayBuffer();
+		hasher.update(new Uint8Array(bytes));
 	}
 	return hasher.digest("hex");
 }
@@ -89,43 +80,7 @@ async function runFuzzBounded(
 	limit: string,
 	budgetSeconds: number,
 ): Promise<"pass" | "timeout" | number> {
-	const root = repoRoot();
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), budgetSeconds * 1000);
-	const cmd = [
-		"bun",
-		"-e",
-		"import { zig } from './scripts/lib/zig.ts';" +
-			"const args = JSON.parse(process.argv[1] ?? '[]');" +
-			"const r = zig(args);" +
-			"process.stdout.write(r.stdout);" +
-			"process.stderr.write(r.stderr);" +
-			"process.exit(r.code ?? 1);",
-		JSON.stringify([
-			"build",
-			"fuzz",
-			"--summary",
-			"failures",
-			`--fuzz=${limit}`,
-			`-j${cpuCount()}`,
-		]),
-	];
-	const proc = Bun.spawn(cmd, {
-		cwd: root,
-		stdout: "inherit",
-		stderr: "inherit",
-		stdin: "ignore",
-		signal: controller.signal,
-	});
-	try {
-		const code = await proc.exited;
-		clearTimeout(timer);
-		if (code === 0) return "pass";
-		return code;
-	} catch {
-		clearTimeout(timer);
-		return "timeout";
-	}
+	return runFuzz({ limit, timeoutMs: budgetSeconds * 1000 });
 }
 
 async function main(): Promise<void> {
@@ -142,7 +97,7 @@ async function main(): Promise<void> {
 	if (pr.exitCode !== 0) await finish(pr.exitCode ?? 1, startedAt);
 
 	console.log("== Clean non-incremental rebuild ==");
-	cleanArtifacts(root);
+	await cleanArtifacts(root);
 	const build1 = zig(["build", "--summary", "all"]);
 	process.stdout.write(build1.stdout);
 	process.stderr.write(build1.stderr);
@@ -151,10 +106,10 @@ async function main(): Promise<void> {
 		console.error(tail(build1.stderr || build1.stdout));
 		await finish(build1.code ?? 1, startedAt);
 	}
-	const h1 = hashZigOut(root);
+	const h1 = await hashZigOut(root);
 
 	console.log("== Reproducibility check (second clean rebuild) ==");
-	cleanArtifacts(root);
+	await cleanArtifacts(root);
 	const build2 = zig(["build", "--summary", "all"]);
 	process.stdout.write(build2.stdout);
 	process.stderr.write(build2.stderr);
@@ -162,7 +117,7 @@ async function main(): Promise<void> {
 		console.error("verify-release: second clean rebuild failed");
 		await finish(build2.code ?? 1, startedAt);
 	}
-	const h2 = hashZigOut(root);
+	const h2 = await hashZigOut(root);
 
 	if (h1.length === 0 && h2.length === 0) {
 		console.log(
@@ -241,14 +196,23 @@ async function main(): Promise<void> {
 		const bin = resolve(root, "zig-out", "bin");
 		const glob = new Bun.Glob("*");
 		for (const artifact of glob.scanSync({ cwd: bin, absolute: true })) {
-			const sig = spawnSync(["cosign", "sign-blob", "--yes", artifact]);
+			// `--output-signature` lets cosign write the .sig file directly so
+			// we do not have to capture its stdout (which mixes status output
+			// with the signature blob).
+			const sig = spawnSync([
+				"cosign",
+				"sign-blob",
+				"--yes",
+				"--output-signature",
+				`${artifact}.sig`,
+				artifact,
+			]);
 			if (sig.code !== 0) {
 				console.error(
 					`verify-release: cosign sign-blob failed for ${artifact}`,
 				);
 				await finish(sig.code ?? 1, startedAt);
 			}
-			await Bun.write(`${artifact}.sig`, sig.stdout);
 			console.log(`(signed ${artifact})`);
 		}
 	} else {

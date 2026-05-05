@@ -10,7 +10,7 @@
  *
  * Never trust bare PATH `zig` silently: §0.7 non-negotiable.
  */
-import { repoRoot, type SpawnResult, spawnSync } from "./runtime.ts";
+import { cpuCount, repoRoot, type SpawnResult, spawnSync } from "./runtime.ts";
 
 const TARGET_VERSION = "0.16.0";
 
@@ -33,6 +33,9 @@ export function zig(args: string[]): SpawnResult {
 			},
 		);
 	}
+	console.error(
+		"WARN: falling back to bare-PATH zig because neither $ZIG nor mise was available",
+	);
 	return spawnSync(["zig", ...args]);
 }
 
@@ -57,4 +60,56 @@ export function zigSupportsFuzz(): boolean {
 export function zigFuzzSkipMessage(): string {
 	const v = zigVersion() || "unknown";
 	return `(native \`zig build fuzz\` skipped on ${process.platform} with Zig ${v}; upstream macOS fuzz support is incomplete in ziglang/zig#20986. Set ZIG_QM_FORCE_FUZZ=1 to attempt anyway.)`;
+}
+
+/**
+ * Run `zig build fuzz` under a wall-clock budget. Returns:
+ *   "pass"    — the fuzz target completed cleanly within the budget
+ *   "timeout" — the budget elapsed first; treated as a clean pass by callers
+ *   number    — non-zero exit code indicating a real fuzz failure
+ *
+ * Shared between the per-PR (Tier 3) and per-release (Tier 4) gates so
+ * the spawn shape, signal handling, and arg list stay identical.
+ */
+export async function runFuzz(opts: {
+	limit: string;
+	timeoutMs: number;
+}): Promise<"pass" | "timeout" | number> {
+	const root = repoRoot();
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+	const cmd = [
+		"bun",
+		"-e",
+		"import { zig } from './scripts/lib/zig.ts';" +
+			"const args = JSON.parse(process.argv[1] ?? '[]');" +
+			"const r = zig(args);" +
+			"process.stdout.write(r.stdout);" +
+			"process.stderr.write(r.stderr);" +
+			"process.exit(r.code ?? 1);",
+		JSON.stringify([
+			"build",
+			"fuzz",
+			"--summary",
+			"failures",
+			`--fuzz=${opts.limit}`,
+			`-j${cpuCount()}`,
+		]),
+	];
+	const proc = Bun.spawn(cmd, {
+		cwd: root,
+		stdout: "inherit",
+		stderr: "inherit",
+		stdin: "ignore",
+		signal: controller.signal,
+	});
+	try {
+		const code = await proc.exited;
+		clearTimeout(timer);
+		if (code === 0) return "pass";
+		return code;
+	} catch {
+		clearTimeout(timer);
+		return "timeout";
+	}
 }

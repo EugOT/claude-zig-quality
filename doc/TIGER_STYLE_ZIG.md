@@ -72,10 +72,16 @@ pub fn greet(name: []const u8) !void {
 }
 
 // RIGHT
-pub fn greet(io: std.Io, name: []const u8) !void {
+pub fn greet(writer: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!void {
+    try writer.print("hello, {s}\n", .{name});
+}
+
+// Top-level `main` wires the real stdout writer:
+pub fn main() !void {
     var buf: [128]u8 = undefined;
-    const rendered = try std.fmt.bufPrint(&buf, "hello, {s}\n", .{name});
-    try io.out.writeAll(rendered);
+    var stdout = std.Io.File.stdout().writerStreaming(&buf);
+    try greet(&stdout.interface, "world");
+    try stdout.interface.flush();
 }
 ```
 

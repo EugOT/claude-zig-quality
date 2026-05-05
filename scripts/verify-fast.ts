@@ -68,6 +68,11 @@ async function main(): Promise<void> {
 	}
 
 	console.log(`== zig ast-check (${zigFiles.length} files) ==`);
+	// `zig ast-check` accepts only ONE positional path per invocation in
+	// 0.16 (verified empirically: passing multiple gives `error: extra
+	// positional parameter`). The CR finding suggested batching, but the
+	// CLI does not support it. Keep per-file looping; spawn cost is small
+	// relative to ast-check itself.
 	for (const file of zigFiles) {
 		const ast = zig(["ast-check", file]);
 		if (ast.code !== 0) {

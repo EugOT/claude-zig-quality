@@ -19,6 +19,7 @@
  *   0 — surface matches baseline, or baseline written, or no root exists
  *   1 — drift detected; unified diff printed on stdout
  */
+import { rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { appendJsonl, repoRoot, spawnSync } from "./lib/runtime.ts";
 import { zig } from "./lib/zig.ts";
@@ -50,10 +51,14 @@ async function extractSurface(root: string, rootFile: string): Promise<string> {
 	//   pub fn bar() ...
 	//   pub var baz ...
 	//   pub usingnamespace Qux;
+	//   pub extern fn open(...) ...
+	//   pub inline fn fast(...) ...
+	//   pub export fn exported(...) ...
+	// The optional modifier group covers `extern`, `inline`, and `export`.
 	const grep = spawnSync([
 		"grep",
 		"-nE",
-		"^[[:space:]]*pub[[:space:]]+(const|fn|var|usingnamespace)\\b",
+		"^[[:space:]]*pub[[:space:]]+((extern|inline|export)[[:space:]]+)?(const|fn|var|usingnamespace)\\b",
 		abs,
 	]);
 	if (grep.code !== 0) return "";
@@ -109,12 +114,18 @@ async function main(): Promise<void> {
 	// Drift — emit a unified diff via /usr/bin/diff, tolerating its exit=1.
 	const tmpA = resolve(root, ".zig-qm/.api-baseline.tmp");
 	const tmpB = resolve(root, ".zig-qm/.api-current.tmp");
-	spawnSync(["mkdir", "-p", resolve(root, ".zig-qm")]);
-	await Bun.write(tmpA, `${baseline}\n`);
-	await Bun.write(tmpB, `${current}\n`);
-	const diff = spawnSync(["diff", "-u", tmpA, tmpB]);
-	process.stdout.write(diff.stdout);
-	console.error("check-public-api: public surface drifted");
+	try {
+		spawnSync(["mkdir", "-p", resolve(root, ".zig-qm")]);
+		await Bun.write(tmpA, `${baseline}\n`);
+		await Bun.write(tmpB, `${current}\n`);
+		const diff = spawnSync(["diff", "-u", tmpA, tmpB]);
+		process.stdout.write(diff.stdout);
+		console.error("check-public-api: public surface drifted");
+	} finally {
+		// Best-effort cleanup; never let scratch files leak between runs.
+		await rm(tmpA, { force: true });
+		await rm(tmpB, { force: true });
+	}
 	await finish(1, startedAt);
 }
 

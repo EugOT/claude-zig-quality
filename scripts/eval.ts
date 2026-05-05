@@ -18,6 +18,7 @@
  *   0 — structure valid (check mode) or default TODO mode
  *   1 — structural failure; the specific missing file or parse error is printed
  */
+import { readdirSync, statSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { appendJsonl, repoRoot } from "./lib/runtime.ts";
 
@@ -62,29 +63,8 @@ async function checkStructure(root: string): Promise<CheckFailure[]> {
 		});
 	}
 
-	// Enumerate domains
-	const domainGlob = new Bun.Glob("*");
-	const domainDirs: string[] = [];
-	try {
-		for (const d of domainGlob.scanSync({
-			cwd: domainsRoot,
-			absolute: true,
-			onlyFiles: false,
-		})) {
-			// Bun.Glob lists files; fall back to a readdir-style check via fs if needed.
-			domainDirs.push(d);
-		}
-	} catch {
-		failures.push({
-			file: domainsRoot,
-			reason: "missing tests/evals/domains/",
-		});
-		return failures;
-	}
-
-	// Bun.Glob without onlyFiles still returns files only — use node:fs as
-	// the reliable directory listing.
-	const { readdirSync, statSync } = await import("node:fs");
+	// Enumerate domains via node:fs (Bun.Glob without onlyFiles still
+	// returns files only — readdirSync is the reliable directory listing).
 	let entries: string[] = [];
 	try {
 		entries = readdirSync(domainsRoot);

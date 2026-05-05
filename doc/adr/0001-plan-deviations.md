@@ -19,7 +19,7 @@ Live observation during Group C execution contradicts this. Bun
 zero-entry `bun.lock`, Bun deleted the empty lockfile that did exist
 and exited with status `0`. The build log records this as:
 
-```
+```text
 bun install: ran, no-op (empty deps -> Bun 1.3.3 deletes empty lockfile
   -> recorded deviation)
 ```

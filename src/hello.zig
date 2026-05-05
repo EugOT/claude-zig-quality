@@ -61,7 +61,6 @@ pub fn parseGreeting(gpa: Allocator, input: []const u8) ParseError!ParsedGreetin
     const prefix = try gpa.dupe(u8, prefix_scratch);
     errdefer gpa.free(prefix);
     const name = try gpa.dupe(u8, name_scratch);
-    errdefer gpa.free(name);
 
     return .{ .prefix = prefix, .name = name };
 }

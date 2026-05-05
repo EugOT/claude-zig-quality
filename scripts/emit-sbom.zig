@@ -63,6 +63,15 @@ pub fn main(init: std.process.Init) !u8 {
     const version = findStringField(ast, source, "version") orelse "0.0.0";
     const fingerprint = findScalarField(ast, source, "fingerprint") orelse "";
 
+    // JSON-escape every interpolated string so a malicious or oddly named
+    // field cannot break out of the surrounding JSON envelope.
+    const name_esc = try escapeJsonString(gpa, name);
+    defer gpa.free(name_esc);
+    const version_esc = try escapeJsonString(gpa, version);
+    defer gpa.free(version_esc);
+    const fingerprint_esc = try escapeJsonString(gpa, fingerprint);
+    defer gpa.free(fingerprint_esc);
+
     // CycloneDX 1.5 envelope.
     try w.print(
         \\{{
@@ -79,17 +88,30 @@ pub fn main(init: std.process.Init) !u8 {
         \\  }},
         \\  "components": [
     ,
-        .{ name, version, name, version },
+        .{ name_esc, version_esc, name_esc, version_esc },
     );
 
     var first = true;
     // Find the `.dependencies = .{...}` init and walk its fields.
     const deps = findStructField(ast, "dependencies");
+    // If the manifest declares a `.dependencies` block but our v1 stub
+    // returned nothing, emit a clear runtime warning so users know the SBOM
+    // will be missing dependency entries.
+    if (deps == null and findFieldValueToken(ast, "dependencies") != null) {
+        std.log.warn("SBOM dependency extraction not implemented for v1; see claude-zig-quality#TBD", .{});
+    }
     if (deps) |dep_list| {
         for (dep_list.entries) |entry| {
             const dep_name = entry.name;
             const dep_hash = findStringFieldInStruct(ast, source, entry.init_idx, "hash") orelse "";
             const dep_url = findStringFieldInStruct(ast, source, entry.init_idx, "url") orelse "";
+
+            const dep_name_esc = try escapeJsonString(gpa, dep_name);
+            defer gpa.free(dep_name_esc);
+            const dep_hash_esc = try escapeJsonString(gpa, dep_hash);
+            defer gpa.free(dep_hash_esc);
+            const dep_url_esc = try escapeJsonString(gpa, dep_url);
+            defer gpa.free(dep_url_esc);
 
             if (!first) try w.print(",\n", .{});
             first = false;
@@ -102,7 +124,7 @@ pub fn main(init: std.process.Init) !u8 {
                 \\      "hashes": [ {{ "alg": "SHA-256", "content": "{s}" }} ],
                 \\      "externalReferences": [ {{ "type": "distribution", "url": "{s}" }} ]
                 \\    }}
-            , .{ dep_name, dep_name, dep_hash, dep_url });
+            , .{ dep_name_esc, dep_name_esc, dep_hash_esc, dep_url_esc });
         }
     }
 
@@ -114,7 +136,7 @@ pub fn main(init: std.process.Init) !u8 {
         \\  ]
         \\}}
         \\
-    , .{fingerprint});
+    , .{fingerprint_esc});
 
     try w.flush();
     return 0;
@@ -174,12 +196,14 @@ fn stringTokenValue(ast: std.zig.Ast, source: []const u8, tok: std.zig.Ast.Token
 
 /// v1 fallback: dependency-table discovery is a TODO. Emits an empty list
 /// for projects with no `.dependencies = .{...}` block (like the v0 scaffold).
+// TODO(claude-zig-quality#TBD): implement v1 SBOM dependency extraction
 fn findStructField(ast: std.zig.Ast, name: []const u8) ?DepList {
     _ = ast;
     _ = name;
     return null;
 }
 
+// TODO(claude-zig-quality#TBD): implement v1 SBOM dependency extraction
 fn findStringFieldInStruct(
     ast: std.zig.Ast,
     source: []const u8,
@@ -191,6 +215,33 @@ fn findStringFieldInStruct(
     _ = node_idx;
     _ = field;
     return null;
+}
+
+/// JSON-escape `s` per RFC 8259 §7. Escapes `"`, `\`, and the control
+/// characters `\n`/`\r`/`\t`/`\b`/`\f` plus any remaining byte in the
+/// `\u{0000}`-`\u{001F}` range as `\u00XX`. Caller owns the returned slice.
+fn escapeJsonString(gpa: std.mem.Allocator, s: []const u8) ![]u8 {
+    var buf: std.array_list.Managed(u8) = std.array_list.Managed(u8).init(gpa);
+    errdefer buf.deinit();
+    for (s) |c| {
+        switch (c) {
+            '"' => try buf.appendSlice("\\\""),
+            '\\' => try buf.appendSlice("\\\\"),
+            '\n' => try buf.appendSlice("\\n"),
+            '\r' => try buf.appendSlice("\\r"),
+            '\t' => try buf.appendSlice("\\t"),
+            0x08 => try buf.appendSlice("\\b"),
+            0x0C => try buf.appendSlice("\\f"),
+            0x00...0x07, 0x0B, 0x0E...0x1F => {
+                const hex_digits = "0123456789abcdef";
+                try buf.appendSlice("\\u00");
+                try buf.append(hex_digits[(c >> 4) & 0xF]);
+                try buf.append(hex_digits[c & 0xF]);
+            },
+            else => try buf.append(c),
+        }
+    }
+    return buf.toOwnedSlice();
 }
 
 fn printErr(io: std.Io, msg: []const u8) !void {

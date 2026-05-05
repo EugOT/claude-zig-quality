@@ -38,7 +38,11 @@ jobs:
         run: mise x zig@0.16.0 -- zig version
 
       - name: Bun install
-        run: bun install --frozen-lockfile || bun install
+        run: |
+          bun install --frozen-lockfile || {
+            echo "::error::bun.lock is out of sync. Run 'bun install' locally and commit the updated lockfile."
+            exit 1
+          }
 
       - name: Run verify-pr gate
         run: ./scripts/verify-pr.sh
@@ -58,7 +62,11 @@ jobs:
           echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
       - name: Bun install
-        run: bun install --frozen-lockfile || bun install
+        run: |
+          bun install --frozen-lockfile || {
+            echo "::error::bun.lock is out of sync. Run 'bun install' locally and commit the updated lockfile."
+            exit 1
+          }
 
       - name: Run eval structural check
         run: bun scripts/eval.ts --check

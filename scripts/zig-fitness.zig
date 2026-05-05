@@ -93,7 +93,8 @@ fn scanFile(
     path: []const u8,
     w: *std.Io.Writer,
 ) !usize {
-    const source = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .unlimited) catch |err| {
+    // Prevent OOM from tampered files
+    const source = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
         try printErrFmt(io, "cannot read {s}: {s}\n", .{ path, @errorName(err) });
         return 0;
     };
@@ -223,6 +224,19 @@ fn containsAny(haystack: []const u8, needles: []const []const u8) bool {
 
 /// Heuristic: scan the function signature for a lonely `!` followed by an
 /// identifier/type without a preceding named set.
+///
+/// Caveats — this is an intentional, speed-oriented best-effort heuristic
+/// for the per-commit fitness gate, not a full AST analysis:
+///   (a) False positives: a `!` inside a string literal (e.g. `"hi!"`) or
+///       a default parameter value will be misread as an inferred error
+///       set marker.
+///   (b) The walker assumes the *first* `)` closes the parameter list and
+///       the *first* subsequent `{` opens the body. Complex signatures
+///       (nested fn types in params, struct literal defaults containing
+///       `)` or `{`, multi-line return types) can fool both anchors.
+///   (c) We accept these false positives because the alternative — a full
+///       AST traversal of every fn_proto — pushes the gate above its
+///       sub-second budget. Reviewers can suppress noise case-by-case.
 fn hasInferredErrorSet(body: []const u8) bool {
     // Find the first ')' after `fn (` — that closes the parameter list.
     const close_paren = std.mem.indexOfScalar(u8, body, ')') orelse return false;
@@ -278,10 +292,44 @@ fn emitFmt(w: *std.Io.Writer, gpa: std.mem.Allocator, args: EmitFmtArgs) !void {
     // Replace {s} with the arg (very small-scope formatter).
     const replaced = try std.mem.replaceOwned(u8, gpa, msg, "{s}", args.message_arg);
     defer gpa.free(replaced);
-    try w.print(
+    // Escape the message so embedded quotes / control chars never break the
+    // surrounding NDJSON envelope.
+    const escaped_message = try escapeJsonString(gpa, replaced);
+    defer gpa.free(escaped_message);
+    const line = try std.fmt.allocPrint(
+        gpa,
         "{{\"file\":\"{s}\",\"kind\":\"{s}\",\"line\":{d},\"message\":\"{s}\"}}\n",
-        .{ args.file, args.kind, args.line, replaced },
+        .{ args.file, args.kind, args.line, escaped_message },
     );
+    defer gpa.free(line);
+    try w.writeAll(line);
+}
+
+/// JSON-escape `s` per RFC 8259 §7. Escapes `"`, `\`, and the control
+/// characters `\n`/`\r`/`\t`/`\b`/`\f` plus any remaining byte in the
+/// `\u{0000}`-`\u{001F}` range as `\uXXXX`. Caller owns the returned slice.
+fn escapeJsonString(gpa: std.mem.Allocator, s: []const u8) ![]u8 {
+    var buf: std.array_list.Managed(u8) = std.array_list.Managed(u8).init(gpa);
+    errdefer buf.deinit();
+    for (s) |c| {
+        switch (c) {
+            '"' => try buf.appendSlice("\\\""),
+            '\\' => try buf.appendSlice("\\\\"),
+            '\n' => try buf.appendSlice("\\n"),
+            '\r' => try buf.appendSlice("\\r"),
+            '\t' => try buf.appendSlice("\\t"),
+            0x08 => try buf.appendSlice("\\b"),
+            0x0C => try buf.appendSlice("\\f"),
+            0x00...0x07, 0x0B, 0x0E...0x1F => {
+                const hex_digits = "0123456789abcdef";
+                try buf.appendSlice("\\u00");
+                try buf.append(hex_digits[(c >> 4) & 0xF]);
+                try buf.append(hex_digits[c & 0xF]);
+            },
+            else => try buf.append(c),
+        }
+    }
+    return buf.toOwnedSlice();
 }
 
 fn printErr(io: std.Io, msg: []const u8) !void {

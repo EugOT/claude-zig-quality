@@ -16,6 +16,18 @@ export type HookVerdict =
 			permissionDecisionReason: string;
 	  };
 
+export function cpuCount(): number {
+	// Prefer node:os in server-side Bun; navigator.hardwareConcurrency is
+	// a browser shim that can be undefined or wrong in CI containers.
+	try {
+		const { cpus } = require("node:os") as typeof import("node:os");
+		const n = cpus().length;
+		return n > 0 ? n : 4;
+	} catch {
+		return 4;
+	}
+}
+
 export function repoRoot(): string {
 	const fromEnv = process.env.CLAUDE_PROJECT_DIR;
 	if (fromEnv && fromEnv.length > 0) return resolve(fromEnv);
