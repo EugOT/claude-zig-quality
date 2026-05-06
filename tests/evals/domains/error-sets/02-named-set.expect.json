@@ -1,6 +1,6 @@
 {
-  "error-sets": {
-    "score_min": 0.95,
-    "must_not_flag": ["parseInt"]
-  }
+	"error-sets": {
+		"score_min": 0.95,
+		"must_not_flag": ["parseInt"]
+	}
 }

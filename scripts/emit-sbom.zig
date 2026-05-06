@@ -20,6 +20,15 @@
 
 const std = @import("std");
 
+/// Errors that can fail the SBOM run beyond plain I/O.
+pub const SbomError = error{
+    /// The manifest declared a `.dependencies = .{...}` block but the
+    /// v1 dependency-extraction stub did not return any entries. Exiting
+    /// 0 in this state would publish an SBOM that silently omits every
+    /// declared dependency, which is worse than failing loudly.
+    IncompleteSbom,
+};
+
 pub fn main(init: std.process.Init) !u8 {
     const gpa = init.gpa;
     const io = init.io;
@@ -56,6 +65,32 @@ pub fn main(init: std.process.Init) !u8 {
     var stdout_w = std.Io.File.stdout().writerStreaming(io, &out_buf);
     const w = &stdout_w.interface;
 
+    emitSbomDocument(gpa, ast, source, w) catch |err| switch (err) {
+        SbomError.IncompleteSbom => {
+            std.log.err(
+                "manifest declares `.dependencies` but the v1 stub could not extract any entries; refusing to publish an incomplete SBOM (see claude-zig-quality#TBD)",
+                .{},
+            );
+            return 1;
+        },
+        else => |e| return e,
+    };
+
+    try w.flush();
+    return 0;
+}
+
+/// Render the CycloneDX document to `w`. Extracted from `main` so the
+/// failure path (manifest declares `.dependencies`, stub returns null) is
+/// reachable from inline tests without needing a real stdout. Returns
+/// `SbomError.IncompleteSbom` when the manifest has a `.dependencies`
+/// block but the dependency stub yields no entries.
+fn emitSbomDocument(
+    gpa: std.mem.Allocator,
+    ast: std.zig.Ast,
+    source: []const u8,
+    w: *std.Io.Writer,
+) !void {
     // Extract top-level scalar fields.
     // `.name` in 0.16 is an enum literal (e.g. `.claude_zig_quality`); the
     // scalar lookup strips the leading dot so we get the bare identifier.
@@ -94,11 +129,12 @@ pub fn main(init: std.process.Init) !u8 {
     var first = true;
     // Find the `.dependencies = .{...}` init and walk its fields.
     const deps = findStructField(ast, "dependencies");
+    const declares_deps = findFieldValueToken(ast, "dependencies") != null;
     // If the manifest declares a `.dependencies` block but our v1 stub
-    // returned nothing, emit a clear runtime warning so users know the SBOM
-    // will be missing dependency entries.
-    if (deps == null and findFieldValueToken(ast, "dependencies") != null) {
-        std.log.warn("SBOM dependency extraction not implemented for v1; see claude-zig-quality#TBD", .{});
+    // returned nothing, the resulting SBOM would silently omit every
+    // declared dependency. Fail closed instead of fail open.
+    if (deps == null and declares_deps) {
+        return SbomError.IncompleteSbom;
     }
     if (deps) |dep_list| {
         for (dep_list.entries) |entry| {
@@ -137,9 +173,6 @@ pub fn main(init: std.process.Init) !u8 {
         \\}}
         \\
     , .{fingerprint_esc});
-
-    try w.flush();
-    return 0;
 }
 
 const DepEntry = struct {
@@ -256,4 +289,80 @@ fn printErrFmt(io: std.Io, comptime fmt: []const u8, args: anytype) !void {
     var w = std.Io.File.stderr().writerStreaming(io, &buf);
     try w.interface.print(fmt, args);
     try w.flush();
+}
+
+test "emitSbomDocument fails closed when manifest declares dependencies but stub returns null" {
+    const gpa = std.testing.allocator;
+    // Fixture mirrors a real build.zig.zon with a `.dependencies` block.
+    // The v1 stub `findStructField` always returns null, so this run must
+    // surface `SbomError.IncompleteSbom` rather than emit a partial SBOM.
+    const fixture =
+        \\.{
+        \\    .name = .test_pkg,
+        \\    .version = "0.1.0",
+        \\    .fingerprint = 0xdeadbeefcafef00d,
+        \\    .minimum_zig_version = "0.16.0",
+        \\    .dependencies = .{
+        \\        .some_dep = .{
+        \\            .url = "https://example.invalid/x.tar.gz",
+        \\            .hash = "1220deadbeef",
+        \\        },
+        \\    },
+        \\    .paths = .{""},
+        \\}
+    ;
+    const source_z = try gpa.dupeZ(u8, fixture);
+    defer gpa.free(source_z);
+
+    var ast = try std.zig.Ast.parse(gpa, source_z, .zon);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    var out_buf: [4096]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out_buf);
+
+    try std.testing.expectError(SbomError.IncompleteSbom, emitSbomDocument(gpa, ast, fixture, &w));
+}
+
+test "emitSbomDocument succeeds for manifest with no dependencies block" {
+    const gpa = std.testing.allocator;
+    const fixture =
+        \\.{
+        \\    .name = .leaf_pkg,
+        \\    .version = "0.0.1",
+        \\    .fingerprint = 0x1234567890abcdef,
+        \\    .minimum_zig_version = "0.16.0",
+        \\    .paths = .{""},
+        \\}
+    ;
+    const source_z = try gpa.dupeZ(u8, fixture);
+    defer gpa.free(source_z);
+
+    var ast = try std.zig.Ast.parse(gpa, source_z, .zon);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    var out_buf: [4096]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out_buf);
+
+    try emitSbomDocument(gpa, ast, fixture, &w);
+    const written = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, written, "\"bomFormat\": \"CycloneDX\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "leaf_pkg") != null);
+}
+
+test "escapeJsonString round-trips quotes, backslashes, and control characters" {
+    const gpa = std.testing.allocator;
+    const input = "a\"b\\c\nd\re\tf\x08g\x0Ch\x01i";
+    const escaped = try escapeJsonString(gpa, input);
+    defer gpa.free(escaped);
+    // Spot-check every escape class so a regression in any branch fails.
+    try std.testing.expect(std.mem.indexOf(u8, escaped, "\\\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, escaped, "\\\\") != null);
+    try std.testing.expect(std.mem.indexOf(u8, escaped, "\\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, escaped, "\\r") != null);
+    try std.testing.expect(std.mem.indexOf(u8, escaped, "\\t") != null);
+    try std.testing.expect(std.mem.indexOf(u8, escaped, "\\b") != null);
+    try std.testing.expect(std.mem.indexOf(u8, escaped, "\\f") != null);
+    try std.testing.expect(std.mem.indexOf(u8, escaped, "\\u0001") != null);
 }

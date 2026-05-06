@@ -111,7 +111,27 @@ async function main(): Promise<void> {
 		await finish(0, startedAt);
 	}
 
-	// Drift — emit a unified diff via /usr/bin/diff, tolerating its exit=1.
+	await emitDriftDiff(root, baseline, current);
+	await finish(1, startedAt);
+}
+
+/**
+ * Emit a unified diff for surface drift, then clean up the scratch files.
+ *
+ * Cleanup uses `Promise.allSettled` so a transient EACCES/EPERM/EBUSY on
+ * `rm` can never bubble up as an unhandled rejection. Without this guard,
+ * a finally-block cleanup error masks the intended `finish(1, ...)` exit
+ * code by replacing it with a generic Bun crash.
+ *
+ * Exported for unit testing: a stub `rm` can verify cleanup never throws
+ * even when both files refuse to delete.
+ */
+export async function emitDriftDiff(
+	root: string,
+	baseline: string,
+	current: string,
+	rmFn: (path: string, opts: { force: true }) => Promise<void> = rm,
+): Promise<void> {
 	const tmpA = resolve(root, ".zig-qm/.api-baseline.tmp");
 	const tmpB = resolve(root, ".zig-qm/.api-current.tmp");
 	try {
@@ -122,11 +142,18 @@ async function main(): Promise<void> {
 		process.stdout.write(diff.stdout);
 		console.error("check-public-api: public surface drifted");
 	} finally {
-		// Best-effort cleanup; never let scratch files leak between runs.
-		await rm(tmpA, { force: true });
-		await rm(tmpB, { force: true });
+		// Best-effort cleanup; never let scratch files leak between runs and
+		// never let a cleanup error mask the caller's intended exit code.
+		await Promise.allSettled([
+			rmFn(tmpA, { force: true }),
+			rmFn(tmpB, { force: true }),
+		]);
 	}
-	await finish(1, startedAt);
 }
 
-await main();
+// Only run as a CLI when invoked directly. Importing for unit tests
+// (tests/unit/public-api-cleanup.test.ts re-using `emitDriftDiff`)
+// must not trigger a full public-API surface check.
+if (import.meta.main) {
+	await main();
+}

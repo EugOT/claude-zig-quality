@@ -74,11 +74,28 @@ export function zigFuzzSkipMessage(): string {
 export async function runFuzz(opts: {
 	limit: string;
 	timeoutMs: number;
+	/**
+	 * Test seam: override the spawned argv. When omitted, the production
+	 * "bun -e <inline> -- <json args>" form is used so `runFuzz` always
+	 * launches the real `zig build fuzz` worker. Tests inject a slow stub
+	 * (e.g. `["sleep", "5"]`) so timeout detection can be exercised
+	 * deterministically in milliseconds, not multi-second budgets.
+	 */
+	command?: string[];
 }): Promise<"pass" | "timeout" | number> {
 	const root = repoRoot();
 	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
-	const cmd = [
+	// `timedOut` is the source of truth: the timer callback both aborts
+	// the child *and* marks our intent. After `proc.exited` resolves we
+	// check this flag (plus `signal.aborted` as a belt-and-suspenders
+	// guard) so a SIGTERM exit (typically code 143) is correctly mapped
+	// to "timeout" instead of bubbling up as a fuzz failure.
+	let timedOut = false;
+	const timer = setTimeout(() => {
+		timedOut = true;
+		controller.abort();
+	}, opts.timeoutMs);
+	const cmd = opts.command ?? [
 		"bun",
 		"-e",
 		"import { zig } from './scripts/lib/zig.ts';" +
@@ -96,20 +113,29 @@ export async function runFuzz(opts: {
 			`-j${cpuCount()}`,
 		]),
 	];
-	const proc = Bun.spawn(cmd, {
-		cwd: root,
-		stdout: "inherit",
-		stderr: "inherit",
-		stdin: "ignore",
-		signal: controller.signal,
-	});
 	try {
-		const code = await proc.exited;
+		const proc = Bun.spawn(cmd, {
+			cwd: root,
+			stdout: "inherit",
+			stderr: "inherit",
+			stdin: "ignore",
+			signal: controller.signal,
+		});
+		try {
+			const code = await proc.exited;
+			if (timedOut || controller.signal.aborted) return "timeout";
+			if (code === 0) return "pass";
+			return code;
+		} catch {
+			// Older Bun builds reject `proc.exited` when the abort fires.
+			// Either branch funnels into the same "timeout" verdict so the
+			// caller's contract holds across runtime versions.
+			if (timedOut || controller.signal.aborted) return "timeout";
+			throw new Error("runFuzz: child process rejected without timeout");
+		}
+	} finally {
+		// Guarantee timer cleanup so a late-resolving `proc.exited` cannot
+		// leave a dangling AbortController callback in the event loop.
 		clearTimeout(timer);
-		if (code === 0) return "pass";
-		return code;
-	} catch {
-		clearTimeout(timer);
-		return "timeout";
 	}
 }

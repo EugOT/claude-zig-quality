@@ -54,26 +54,66 @@ async function cleanArtifacts(root: string): Promise<void> {
 	await rm(resolve(root, "zig-out"), { recursive: true, force: true });
 }
 
-async function hashZigOut(root: string): Promise<string> {
-	const bin = resolve(root, "zig-out", "bin");
+/**
+ * Hash a directory tree of release artifacts with framing that prevents
+ * artifact-boundary aliasing.
+ *
+ * Each file contributes the following to the digest:
+ *   <relative-path-utf8> \0 <byte-length-decimal-utf8> \0 <raw-bytes>
+ *
+ * Without this framing, hashing the concatenated bytes of `["a"=abc, "b"=def]`
+ * collides with `["ab"=abcdef]` because the byte stream is identical. The
+ * length-prefix framing makes the digest unambiguous: distinct artifact sets
+ * always produce distinct digests.
+ *
+ * Exported so unit tests can exercise the framing on a synthetic tmpdir
+ * without spinning up a real `zig build`.
+ */
+export async function hashDir(dir: string): Promise<string> {
 	const glob = new Bun.Glob("*");
 	const files: string[] = [];
 	try {
-		for (const f of glob.scanSync({ cwd: bin, absolute: true })) files.push(f);
+		for (const f of glob.scanSync({ cwd: dir, absolute: true })) files.push(f);
 	} catch {
 		return "";
 	}
 	if (files.length === 0) return "";
 	files.sort();
-	// Bun-native hashing: feed each file's bytes into a sha256 stream so the
-	// digest is purely content-addressed and stable across runs without
-	// shelling out to `shasum`.
 	const hasher = new Bun.CryptoHasher("sha256");
+	const NUL = new Uint8Array([0]);
+	const enc = new TextEncoder();
 	for (const f of files) {
-		const bytes = await Bun.file(f).arrayBuffer();
-		hasher.update(new Uint8Array(bytes));
+		const bytes = new Uint8Array(await Bun.file(f).arrayBuffer());
+		// path \0 size \0 bytes  → length-prefixed framing per file.
+		const rel = f.startsWith(`${dir}/`) ? f.slice(dir.length + 1) : f;
+		hasher.update(enc.encode(rel));
+		hasher.update(NUL);
+		hasher.update(enc.encode(String(bytes.byteLength)));
+		hasher.update(NUL);
+		hasher.update(bytes);
 	}
 	return hasher.digest("hex");
+}
+
+async function hashZigOut(root: string): Promise<string> {
+	return hashDir(resolve(root, "zig-out", "bin"));
+}
+
+/**
+ * Discover signable artifacts under `bin`. Returns an empty list if the
+ * directory is missing or the glob crashes; never throws. Mirrors the
+ * crash-tolerance of `hashDir` so a project without a `zig-out/bin`
+ * (e.g. cargo-style layout) skips signing cleanly instead of aborting.
+ */
+export function listArtifacts(bin: string): string[] {
+	const glob = new Bun.Glob("*");
+	const out: string[] = [];
+	try {
+		for (const f of glob.scanSync({ cwd: bin, absolute: true })) out.push(f);
+	} catch {
+		return [];
+	}
+	return out;
 }
 
 async function runFuzzBounded(
@@ -194,26 +234,32 @@ async function main(): Promise<void> {
 	const inCI = process.env.CI === "true" || process.env.CI === "1";
 	if (hasCosign && cosignEnabled && inCI) {
 		const bin = resolve(root, "zig-out", "bin");
-		const glob = new Bun.Glob("*");
-		for (const artifact of glob.scanSync({ cwd: bin, absolute: true })) {
-			// `--output-signature` lets cosign write the .sig file directly so
-			// we do not have to capture its stdout (which mixes status output
-			// with the signature blob).
-			const sig = spawnSync([
-				"cosign",
-				"sign-blob",
-				"--yes",
-				"--output-signature",
-				`${artifact}.sig`,
-				artifact,
-			]);
-			if (sig.code !== 0) {
-				console.error(
-					`verify-release: cosign sign-blob failed for ${artifact}`,
-				);
-				await finish(sig.code ?? 1, startedAt);
+		const artifacts = listArtifacts(bin);
+		if (artifacts.length === 0) {
+			console.log(
+				"(no artifacts under zig-out/bin to sign; skipping cosign step)",
+			);
+		} else {
+			for (const artifact of artifacts) {
+				// `--output-signature` lets cosign write the .sig file directly so
+				// we do not have to capture its stdout (which mixes status output
+				// with the signature blob).
+				const sig = spawnSync([
+					"cosign",
+					"sign-blob",
+					"--yes",
+					"--output-signature",
+					`${artifact}.sig`,
+					artifact,
+				]);
+				if (sig.code !== 0) {
+					console.error(
+						`verify-release: cosign sign-blob failed for ${artifact}`,
+					);
+					await finish(sig.code ?? 1, startedAt);
+				}
+				console.log(`(signed ${artifact})`);
 			}
-			console.log(`(signed ${artifact})`);
 		}
 	} else {
 		console.log(
@@ -225,4 +271,9 @@ async function main(): Promise<void> {
 	await finish(0, startedAt);
 }
 
-await main();
+// Only run as a CLI when invoked directly. Importing for unit tests
+// (e.g. tests/unit/hash-zig-out.test.ts re-using `hashDir`) must not
+// trigger a full release verify pass.
+if (import.meta.main) {
+	await main();
+}

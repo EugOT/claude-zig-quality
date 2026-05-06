@@ -76,12 +76,15 @@ pub fn greet(writer: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!void 
     try writer.print("hello, {s}\n", .{name});
 }
 
-// Top-level `main` wires the real stdout writer:
-pub fn main() !void {
+// Top-level `main` wires the real stdout writer. The `io` argument is
+// the program's `std.Io` instance, threaded in from `std.process.Init`
+// (see §1.3 wiring elsewhere in this doc).
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
     var buf: [128]u8 = undefined;
-    var stdout = std.Io.File.stdout().writerStreaming(&buf);
+    var stdout = std.Io.File.stdout().writerStreaming(io, &buf);
     try greet(&stdout.interface, "world");
-    try stdout.interface.flush();
+    try stdout.flush();
 }
 ```
 

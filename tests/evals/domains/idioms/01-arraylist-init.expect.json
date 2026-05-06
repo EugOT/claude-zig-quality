@@ -1,9 +1,9 @@
 {
-  "idioms": {
-    "score_max": 0.2,
-    "must_flag": [
-      "buildList uses std.ArrayList(T).init(alloc); Zig 0.16 requires .empty initializer with allocator-parameterized append"
-    ],
-    "must_not_flag": []
-  }
+	"idioms": {
+		"score_max": 0.2,
+		"must_flag": [
+			"buildList uses std.ArrayList(T).init(alloc); Zig 0.16 requires .empty initializer with allocator-parameterized append"
+		],
+		"must_not_flag": []
+	}
 }

@@ -39,10 +39,14 @@ jobs:
 
       - name: Bun install
         run: |
-          bun install --frozen-lockfile || {
-            echo "::error::bun.lock is out of sync. Run 'bun install' locally and commit the updated lockfile."
-            exit 1
-          }
+          set +e
+          bun install --frozen-lockfile
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -ne 0 ]; then
+            echo "::error::bun install --frozen-lockfile failed (exit ${exit_code}); see logs above for details"
+            exit "$exit_code"
+          fi
 
       - name: Run verify-pr gate
         run: ./scripts/verify-pr.sh
@@ -63,10 +67,14 @@ jobs:
 
       - name: Bun install
         run: |
-          bun install --frozen-lockfile || {
-            echo "::error::bun.lock is out of sync. Run 'bun install' locally and commit the updated lockfile."
-            exit 1
-          }
+          set +e
+          bun install --frozen-lockfile
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -ne 0 ]; then
+            echo "::error::bun install --frozen-lockfile failed (exit ${exit_code}); see logs above for details"
+            exit "$exit_code"
+          fi
 
       - name: Run eval structural check
         run: bun scripts/eval.ts --check

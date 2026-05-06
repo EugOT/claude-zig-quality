@@ -1,9 +1,9 @@
 {
-  "error-sets": {
-    "score_max": 0.2,
-    "must_flag": [
-      "parseInt returns anyerror in a public signature; replace with a named error set"
-    ],
-    "must_not_flag": []
-  }
+	"error-sets": {
+		"score_max": 0.2,
+		"must_flag": [
+			"parseInt returns anyerror in a public signature; replace with a named error set"
+		],
+		"must_not_flag": []
+	}
 }
