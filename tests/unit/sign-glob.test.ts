@@ -13,7 +13,7 @@
  */
 
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listArtifacts } from "../../scripts/verify-release.ts";
@@ -42,6 +42,36 @@ test("listArtifacts returns absolute file paths when populated", async () => {
 		expect(out).toHaveLength(2);
 		expect(out[0]).toBe(join(dir, "alpha"));
 		expect(out[1]).toBe(join(dir, "beta"));
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+/**
+ * R7-4 (CR Major): pin Bun.Glob's `"*"` semantics. The `zig-out/bin/`
+ * layout that `verify-release` signs is flat — no nested subdirs — and
+ * the glob pattern intentionally does NOT recurse. If a future Bun
+ * release changes `"*"` to also match nested files, this test fires
+ * and the caller's contract docstring must be revisited.
+ */
+test("listArtifacts does NOT recurse into subdirectories (pattern '*' is top-level only)", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "sign-glob-subdir-"));
+	try {
+		// top-level files: should be returned
+		await writeFile(join(dir, "top1"), "a");
+		await writeFile(join(dir, "top2"), "b");
+		// nested file: must NOT be returned by `"*"` semantics
+		const sub = join(dir, "subdir");
+		await mkdir(sub, { recursive: true });
+		await writeFile(join(sub, "nested"), "c");
+
+		const out = listArtifacts(dir).sort();
+		// only the two top-level files (or, if Bun yields the subdir
+		// entry as a directory path, it would still not match "nested")
+		const justFileNames = out.map((p) => p.split("/").pop()).sort();
+		expect(justFileNames).not.toContain("nested");
+		expect(justFileNames).toContain("top1");
+		expect(justFileNames).toContain("top2");
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

@@ -57,6 +57,13 @@ guessing game for callers. It is a semver hazard.
 Within a module, inferred error sets (`!T` without a named set) are
 allowed for private functions. The verifier flags only `pub` drift.
 
+**Sanctioned exception — `pub fn main`.** The program entrypoint may
+declare `pub fn main(...) !void`. Zig's runtime defines the contract
+for `main`'s return type, so an inferred error set there is *not* a
+semver hazard for callers (there are none). This is the only `pub`
+position where `!T` without a named set is permitted; the verifier
+whitelists `main` accordingly. See the §1.3 example.
+
 ### 1.3 Inject `std.Io` at the boundary
 
 Public APIs that read or write streams accept `io: std.Io` (or the
@@ -79,6 +86,11 @@ pub fn greet(writer: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!void 
 // Top-level `main` wires the real stdout writer. The `io` argument is
 // the program's `std.Io` instance, threaded in from `std.process.Init`
 // (see §1.3 wiring elsewhere in this doc).
+//
+// `main`'s `!void` is the one place §1.2 permits an inferred error
+// set on a `pub` signature: Zig's runtime defines the contract for
+// `main`, so callers (there are none — the runtime invokes it)
+// cannot drift on the inferred set.
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     var buf: [128]u8 = undefined;

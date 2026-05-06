@@ -66,6 +66,11 @@ async function cleanArtifacts(root: string): Promise<void> {
  * length-prefix framing makes the digest unambiguous: distinct artifact sets
  * always produce distinct digests.
  *
+ * NOTE (Codex R7 P2 follow-up — STALE): the prior commit already added the
+ * length-prefixed framing below (`path \0 size \0 bytes`). Re-asserting it
+ * here so future drive-by edits do not regress to a naive `hasher.update(bytes)`
+ * loop. See tests/unit/hash-zig-out.test.ts for the differential cases.
+ *
  * Exported so unit tests can exercise the framing on a synthetic tmpdir
  * without spinning up a real `zig build`.
  */
@@ -99,13 +104,24 @@ async function hashZigOut(root: string): Promise<string> {
 	return hashDir(resolve(root, "zig-out", "bin"));
 }
 
-/**
- * Discover signable artifacts under `bin`. Returns an empty list if the
- * directory is missing or the glob crashes; never throws. Mirrors the
- * crash-tolerance of `hashDir` so a project without a `zig-out/bin`
- * (e.g. cargo-style layout) skips signing cleanly instead of aborting.
- */
+// Discover signable artifacts under `bin`. Returns an empty list if the
+// directory is missing or the glob crashes; never throws. Mirrors the
+// crash-tolerance of `hashDir` so a project without a `zig-out/bin`
+// (e.g. cargo-style layout) skips signing cleanly instead of aborting.
+//
+// Glob semantics (Bun.Glob): the pattern "*" matches TOP-LEVEL entries
+// only — files (and directories, but Bun.Glob.scanSync only yields paths
+// it can stat as files in this codepath) directly under `bin`. It does
+// NOT recurse. That matches the canonical zig layout: `zig build` writes
+// executables flat into `zig-out/bin/<exe>`, with no subdirectories. If
+// a future build emits nested artifacts (e.g. per-arch subdirs), this
+// pattern must change to a recursive globstar pattern and the caller's
+// signing loop needs to handle directory entries explicitly.
+//
+// Covered by tests/unit/sign-glob.test.ts — the "subdir non-recursion"
+// case is the regression boundary for this contract (R7-4).
 export function listArtifacts(bin: string): string[] {
+	// `"*"` = top-level entries only; intentionally non-recursive.
 	const glob = new Bun.Glob("*");
 	const out: string[] = [];
 	try {
