@@ -5,9 +5,12 @@ Claude Code, TypeScript-under-Bun hooks and scripts, and a tiered gate
 topology. Designed so the same scaffold can be re-instantiated, layer by
 layer, for **Elixir, Nu, Julia, Odin, Rust, Python, R, and TypeScript**.
 
-- Live adopter reference: `~/ghq/github.com/EugOT/gitstore-cli`
-- Binding plan: `~/.claude/scratch/zig-quality-plan.md`
-- Build report: `~/.claude/scratch/zig-quality-build.md`
+- Live adopter reference: `path/to/your/live-adopter-repo`
+- Binding plan: `path/to/your/zig-quality-plan.md`
+- Build report: `path/to/your/zig-quality-build.md`
+
+> Replace the three paths above with locations on your own machine; they are
+> author notes, not template defaults.
 
 ## Why
 

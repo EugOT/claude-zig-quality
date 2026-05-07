@@ -78,7 +78,6 @@ const Entry = struct { name: []const u8, kind: []const u8 };
 /// Classify a top-level decl. Returns null for non-pub decls.
 fn classifyDecl(ast: std.zig.Ast, decl_idx: std.zig.Ast.Node.Index) ?Entry {
     const tags = ast.nodes.items(.tag);
-    const datas = ast.nodes.items(.data);
     const main_tokens = ast.nodes.items(.main_token);
     const token_tags = ast.tokens.items(.tag);
 
@@ -113,10 +112,7 @@ fn classifyDecl(ast: std.zig.Ast, decl_idx: std.zig.Ast.Node.Index) ?Entry {
             if (token_tags[name_tok] != .identifier) return null;
             return .{ .name = ast.tokenSlice(name_tok), .kind = kind };
         },
-        else => {
-            _ = datas;
-            return null;
-        },
+        else => return null,
     }
 }
 

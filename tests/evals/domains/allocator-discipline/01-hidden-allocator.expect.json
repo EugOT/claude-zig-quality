@@ -1,9 +1,9 @@
 {
-  "allocator-discipline": {
-    "score_max": 0.2,
-    "must_flag": [
-      "buildBuffer hides a module-scoped GeneralPurposeAllocator; public API must accept std.mem.Allocator as a parameter"
-    ],
-    "must_not_flag": []
-  }
+	"allocator-discipline": {
+		"score_max": 0.2,
+		"must_flag": [
+			"buildBuffer hides a module-scoped GeneralPurposeAllocator; public API must accept std.mem.Allocator as a parameter"
+		],
+		"must_not_flag": []
+	}
 }

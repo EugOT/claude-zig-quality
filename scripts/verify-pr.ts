@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 import { appendJsonl, repoRoot, tail } from "./lib/runtime.ts";
+// cpuCount is re-used inside lib/zig.ts#runFuzz; verify-pr no longer
+// needs a local copy.
 /**
  * verify-pr.ts — Tier 3 (~10min).
  *
@@ -15,7 +17,12 @@ import { appendJsonl, repoRoot, tail } from "./lib/runtime.ts";
  *   0 — pass
  *   1 — real failure (fuzz crash, build/test failure)
  */
-import { zig, zigFuzzSkipMessage, zigSupportsFuzz } from "./lib/zig.ts";
+import {
+	runFuzz,
+	zig,
+	zigFuzzSkipMessage,
+	zigSupportsFuzz,
+} from "./lib/zig.ts";
 
 const TIER = "pr" as const;
 
@@ -36,18 +43,6 @@ const SAFETY_MODES: ReadonlyArray<string> = [
 
 const FUZZ_TIMEOUT_MS = 300_000;
 
-function cpuCount(): number {
-	// Prefer node:os in server-side Bun; navigator.hardwareConcurrency is
-	// a browser shim that can be undefined or wrong in CI containers.
-	try {
-		const { cpus } = require("node:os") as typeof import("node:os");
-		const n = cpus().length;
-		return n > 0 ? n : 4;
-	} catch {
-		return 4;
-	}
-}
-
 async function finish(code: number, startedAt: number): Promise<never> {
 	const durationMs = Date.now() - startedAt;
 	await appendJsonl(".claude/logs/verify.jsonl", {
@@ -62,50 +57,15 @@ async function finish(code: number, startedAt: number): Promise<never> {
 function hasBuildStep(step: string): boolean {
 	const listing = zig(["build", "-l"]);
 	const text = `${listing.stdout}\n${listing.stderr}`;
-	const re = new RegExp(`^[\\s]+${step}[\\s]`, "m");
+	const escaped = step.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const re = new RegExp(`^[\\t ]*${escaped}(?:\\s|$)`, "m");
 	return re.test(text);
 }
 
 async function runFuzzBounded(
 	limit: string,
 ): Promise<"pass" | "timeout" | number> {
-	const root = repoRoot();
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), FUZZ_TIMEOUT_MS);
-	const cmd = [
-		"bun",
-		"-e",
-		"import { zig } from './scripts/lib/zig.ts';" +
-			"const args = JSON.parse(process.argv[1] ?? '[]');" +
-			"const r = zig(args);" +
-			"process.stdout.write(r.stdout);" +
-			"process.stderr.write(r.stderr);" +
-			"process.exit(r.code ?? 1);",
-		JSON.stringify([
-			"build",
-			"fuzz",
-			"--summary",
-			"failures",
-			`--fuzz=${limit}`,
-			`-j${cpuCount()}`,
-		]),
-	];
-	const proc = Bun.spawn(cmd, {
-		cwd: root,
-		stdout: "inherit",
-		stderr: "inherit",
-		stdin: "ignore",
-		signal: controller.signal,
-	});
-	try {
-		const code = await proc.exited;
-		clearTimeout(timer);
-		if (code === 0) return "pass";
-		return code;
-	} catch {
-		clearTimeout(timer);
-		return "timeout";
-	}
+	return runFuzz({ limit, timeoutMs: FUZZ_TIMEOUT_MS });
 }
 
 async function main(): Promise<void> {

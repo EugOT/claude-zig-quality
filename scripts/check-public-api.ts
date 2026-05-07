@@ -19,6 +19,7 @@
  *   0 — surface matches baseline, or baseline written, or no root exists
  *   1 — drift detected; unified diff printed on stdout
  */
+import { rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { appendJsonl, repoRoot, spawnSync } from "./lib/runtime.ts";
 import { zig } from "./lib/zig.ts";
@@ -50,10 +51,14 @@ async function extractSurface(root: string, rootFile: string): Promise<string> {
 	//   pub fn bar() ...
 	//   pub var baz ...
 	//   pub usingnamespace Qux;
+	//   pub extern fn open(...) ...
+	//   pub inline fn fast(...) ...
+	//   pub export fn exported(...) ...
+	// The optional modifier group covers `extern`, `inline`, and `export`.
 	const grep = spawnSync([
 		"grep",
 		"-nE",
-		"^[[:space:]]*pub[[:space:]]+(const|fn|var|usingnamespace)\\b",
+		"^[[:space:]]*pub[[:space:]]+((extern|inline|export)[[:space:]]+)?(const|fn|var|usingnamespace)\\b",
 		abs,
 	]);
 	if (grep.code !== 0) return "";
@@ -106,16 +111,49 @@ async function main(): Promise<void> {
 		await finish(0, startedAt);
 	}
 
-	// Drift — emit a unified diff via /usr/bin/diff, tolerating its exit=1.
-	const tmpA = resolve(root, ".zig-qm/.api-baseline.tmp");
-	const tmpB = resolve(root, ".zig-qm/.api-current.tmp");
-	spawnSync(["mkdir", "-p", resolve(root, ".zig-qm")]);
-	await Bun.write(tmpA, `${baseline}\n`);
-	await Bun.write(tmpB, `${current}\n`);
-	const diff = spawnSync(["diff", "-u", tmpA, tmpB]);
-	process.stdout.write(diff.stdout);
-	console.error("check-public-api: public surface drifted");
+	await emitDriftDiff(root, baseline, current);
 	await finish(1, startedAt);
 }
 
-await main();
+/**
+ * Emit a unified diff for surface drift, then clean up the scratch files.
+ *
+ * Cleanup uses `Promise.allSettled` so a transient EACCES/EPERM/EBUSY on
+ * `rm` can never bubble up as an unhandled rejection. Without this guard,
+ * a finally-block cleanup error masks the intended `finish(1, ...)` exit
+ * code by replacing it with a generic Bun crash.
+ *
+ * Exported for unit testing: a stub `rm` can verify cleanup never throws
+ * even when both files refuse to delete.
+ */
+export async function emitDriftDiff(
+	root: string,
+	baseline: string,
+	current: string,
+	rmFn: (path: string, opts: { force: true }) => Promise<void> = rm,
+): Promise<void> {
+	const tmpA = resolve(root, ".zig-qm/.api-baseline.tmp");
+	const tmpB = resolve(root, ".zig-qm/.api-current.tmp");
+	try {
+		spawnSync(["mkdir", "-p", resolve(root, ".zig-qm")]);
+		await Bun.write(tmpA, `${baseline}\n`);
+		await Bun.write(tmpB, `${current}\n`);
+		const diff = spawnSync(["diff", "-u", tmpA, tmpB]);
+		process.stdout.write(diff.stdout);
+		console.error("check-public-api: public surface drifted");
+	} finally {
+		// Best-effort cleanup; never let scratch files leak between runs and
+		// never let a cleanup error mask the caller's intended exit code.
+		await Promise.allSettled([
+			rmFn(tmpA, { force: true }),
+			rmFn(tmpB, { force: true }),
+		]);
+	}
+}
+
+// Only run as a CLI when invoked directly. Importing for unit tests
+// (tests/unit/public-api-cleanup.test.ts re-using `emitDriftDiff`)
+// must not trigger a full public-API surface check.
+if (import.meta.main) {
+	await main();
+}

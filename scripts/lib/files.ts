@@ -25,33 +25,20 @@ export function collectZigInputs(root = repoRoot()): {
 } {
 	// existsSync/statSync from node:fs handle directories reliably; the prior
 	// Bun.file(...).size >= 0 form throws on directories (CodeRabbit finding).
-	const roots = CANDIDATE_DIRS.map((d) => resolve(root, d)).filter((p) =>
-		existsSync(p),
+	const existingDirs = CANDIDATE_DIRS.filter((d) =>
+		existsSync(resolve(root, d)),
 	);
+	const roots = existingDirs.map((d) => resolve(root, d));
 	if (roots.length === 0) return { fmtInputs: [], zigFiles: [] };
 
-	// Try jj first
-	const jj = spawnSync(
-		[
-			"jj",
-			"files",
-			"--",
-			...CANDIDATE_DIRS.filter((d) => existsRelaxed(resolve(root, d))),
-		],
-		{ cwd: root },
-	);
+	// Try jj first. Pass the pre-filtered relative paths directly so we do
+	// not redo the existence check.
+	const jj = spawnSync(["jj", "files", "--", ...existingDirs], { cwd: root });
 	let tracked: string[] = [];
 	if (jj.code === 0 && jj.stdout.trim().length > 0) {
 		tracked = jj.stdout.split("\n").filter((l) => l.length > 0);
 	} else {
-		const git = spawnSync(
-			[
-				"git",
-				"ls-files",
-				...CANDIDATE_DIRS.filter((d) => existsRelaxed(resolve(root, d))),
-			],
-			{ cwd: root },
-		);
+		const git = spawnSync(["git", "ls-files", ...existingDirs], { cwd: root });
 		if (git.code === 0 && git.stdout.trim().length > 0) {
 			tracked = git.stdout.split("\n").filter((l) => l.length > 0);
 		}
@@ -71,16 +58,12 @@ export function collectZigInputs(root = repoRoot()): {
 	return { fmtInputs, zigFiles };
 }
 
-function existsRelaxed(path: string): boolean {
-	return existsSync(path);
-}
-
 function fsWalk(root: string): { fmtInputs: string[]; zigFiles: string[] } {
 	const out: string[] = [];
 	const { Glob } = Bun;
 	for (const name of CANDIDATE_DIRS) {
 		const p = resolve(root, name);
-		if (!existsRelaxed(p)) continue;
+		if (!existsSync(p)) continue;
 		let isDir = false;
 		try {
 			isDir = statSync(p).isDirectory();

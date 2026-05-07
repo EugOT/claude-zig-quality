@@ -19,7 +19,7 @@ Live observation during Group C execution contradicts this. Bun
 zero-entry `bun.lock`, Bun deleted the empty lockfile that did exist
 and exited with status `0`. The build log records this as:
 
-```
+```text
 bun install: ran, no-op (empty deps -> Bun 1.3.3 deletes empty lockfile
   -> recorded deviation)
 ```
@@ -70,6 +70,23 @@ reconciliations can be appended below as they are observed. Each
 entry should include: plan reference, observed behavior, decision.
 
 ### Deviation 2 — Subagent trio: `verifier`/`fixer`/`api-drift` instead of `api-drift`/`fuzzer`/`release-engineer`
+
+> **🚫 SUPERSEDED 2026-05-05.** Per user direction "follow the actual plan
+> `~/.claude/scratch/zig-quality-plan.md`" (and the integrated single source
+> of truth established at scratch plan §0.13), the verifier/fixer trio is
+> retired. Canonical subagent set per plan §3 + §10.5 row E is
+> `api-drift`/`fuzzer`/`release-engineer` with model pins
+> `haiku`/`sonnet`/`opus`. Reconciliation commit removes `zig-verifier.md`
+> + `zig-fixer.md` and adds `zig-fuzzer.md` + `zig-release-engineer.md`
+> with body text matching the rigor of the retained `zig-api-drift.md`
+> (Zig wrapper resolution, untrusted-data boundary, Darwin fuzz
+> degradation, structured output). Capability previously offered by
+> verifier (clean JSON verdict) and fixer (worktree isolation, forbidden
+> paths, bounded retries) is preserved indirectly via the main agent's
+> direct gate invocation through the Stop hook + verify scripts. If live
+> adopter experience demonstrates a real need to reintroduce them, they
+> can be added as a v2 enhancement under a separate ADR. The historical
+> deviation record below is preserved for forensic context.
 
 - **Plan reference:** `~/.claude/scratch/zig-quality-plan.md` §3 lists
   the three retained subagents as `zig-api-drift`, `zig-fuzzer`,

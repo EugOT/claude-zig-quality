@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/EugOT/claude-zig-quality/doc/schemas/dora.schema.json",
+  "title": "DORA metrics",
+  "description": "Shape of .agent/dora.json. See doc/adr/0004-dora-metrics-tracking.md for rationale.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "deploys_per_week",
+    "lead_time_hours",
+    "change_fail_rate",
+    "mttr_hours"
+  ],
+  "properties": {
+    "deploys_per_week": {
+      "description": "Deployment Frequency: average successful deploys per week. null = not yet measured.",
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "lead_time_hours": {
+      "description": "Lead Time for Changes: median hours from commit to production. null = not yet measured.",
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "change_fail_rate": {
+      "description": "Change Failure Rate: fraction of deploys that cause a failure, in [0, 1]. null = not yet measured.",
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "mttr_hours": {
+      "description": "Mean Time to Restore: median hours to recover from a production failure. null = not yet measured.",
+      "type": ["number", "null"],
+      "minimum": 0
+    }
+  }
+}

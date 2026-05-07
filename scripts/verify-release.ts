@@ -18,21 +18,17 @@
  *   0 — pass
  *   1 — real failure (build mismatch, fuzz crash, reproducibility drift)
  */
-import { resolve } from "node:path";
+import { rm } from "node:fs/promises";
+import { relative, resolve } from "node:path";
 import { appendJsonl, repoRoot, spawnSync, tail } from "./lib/runtime.ts";
-import { zig, zigFuzzSkipMessage, zigSupportsFuzz } from "./lib/zig.ts";
+import {
+	runFuzz,
+	zig,
+	zigFuzzSkipMessage,
+	zigSupportsFuzz,
+} from "./lib/zig.ts";
 
 const TIER = "release" as const;
-
-function cpuCount(): number {
-	try {
-		const { cpus } = require("node:os") as typeof import("node:os");
-		const n = cpus().length;
-		return n > 0 ? n : 4;
-	} catch {
-		return 4;
-	}
-}
 
 async function finish(code: number, startedAt: number): Promise<never> {
 	const durationMs = Date.now() - startedAt;
@@ -48,84 +44,114 @@ async function finish(code: number, startedAt: number): Promise<never> {
 function hasBuildStep(step: string): boolean {
 	const listing = zig(["build", "-l"]);
 	const text = `${listing.stdout}\n${listing.stderr}`;
-	const re = new RegExp(`^[\\s]+${step}[\\s]`, "m");
+	const escaped = step.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const re = new RegExp(`^[\\t ]*${escaped}(?:\\s|$)`, "m");
 	return re.test(text);
 }
 
-function cleanArtifacts(root: string): void {
-	spawnSync([
-		"rm",
-		"-rf",
-		resolve(root, ".zig-cache"),
-		resolve(root, "zig-out"),
-	]);
+async function cleanArtifacts(root: string): Promise<void> {
+	await rm(resolve(root, ".zig-cache"), { recursive: true, force: true });
+	await rm(resolve(root, "zig-out"), { recursive: true, force: true });
 }
 
-function hashZigOut(root: string): string {
-	const bin = resolve(root, "zig-out", "bin");
+/**
+ * Hash a directory tree of release artifacts with framing that prevents
+ * artifact-boundary aliasing.
+ *
+ * Each file contributes the following to the digest:
+ *   <relative-path-utf8> \0 <byte-length-decimal-utf8> \0 <raw-bytes>
+ *
+ * Without this framing, hashing the concatenated bytes of `["a"=abc, "b"=def]`
+ * collides with `["ab"=abcdef]` because the byte stream is identical. The
+ * length-prefix framing makes the digest unambiguous: distinct artifact sets
+ * always produce distinct digests.
+ *
+ * NOTE (Codex R7 P2 follow-up — STALE): the prior commit already added the
+ * length-prefixed framing below (`path \0 size \0 bytes`). Re-asserting it
+ * here so future drive-by edits do not regress to a naive `hasher.update(bytes)`
+ * loop. See tests/unit/hash-zig-out.test.ts for the differential cases.
+ *
+ * Exported so unit tests can exercise the framing on a synthetic tmpdir
+ * without spinning up a real `zig build`.
+ */
+export async function hashDir(dir: string): Promise<string> {
 	const glob = new Bun.Glob("*");
 	const files: string[] = [];
 	try {
-		for (const f of glob.scanSync({ cwd: bin, absolute: true })) files.push(f);
-	} catch {
-		return "";
+		for (const f of glob.scanSync({ cwd: dir, absolute: true })) files.push(f);
+	} catch (err) {
+		// ENOENT = missing dir → degrade gracefully (caller's "no
+		// artifacts under zig-out/bin to sign" path). EACCES / IO errors
+		// must NOT be silently swallowed — they're real failures and
+		// would let a release sign over an incomplete artifact set.
+		if ((err as NodeJS.ErrnoException | undefined)?.code === "ENOENT")
+			return "";
+		throw err;
 	}
 	if (files.length === 0) return "";
 	files.sort();
-	// Hash each file independently, then hash the concatenated digests. This
-	// is stable across runs because we sort by absolute path and the per-file
-	// digest is content-addressed.
 	const hasher = new Bun.CryptoHasher("sha256");
+	const NUL = new Uint8Array([0]);
+	const enc = new TextEncoder();
 	for (const f of files) {
-		const r = spawnSync(["shasum", "-a", "256", f]);
-		if (r.code !== 0) return "";
-		const first = r.stdout.split(/\s+/, 1)[0] ?? "";
-		hasher.update(first);
+		const bytes = new Uint8Array(await Bun.file(f).arrayBuffer());
+		// path \0 size \0 bytes  → length-prefixed framing per file.
+		// Use path.relative + forward-slash normalisation so the digest is
+		// stable across platforms (manual `startsWith("${dir}/")` slicing
+		// fails on Windows where Bun.Glob may return forward slashes but
+		// `dir` from path.resolve uses backslashes).
+		const rel = relative(dir, f).replaceAll("\\", "/");
+		hasher.update(enc.encode(rel));
+		hasher.update(NUL);
+		hasher.update(enc.encode(String(bytes.byteLength)));
+		hasher.update(NUL);
+		hasher.update(bytes);
 	}
 	return hasher.digest("hex");
+}
+
+async function hashZigOut(root: string): Promise<string> {
+	return hashDir(resolve(root, "zig-out", "bin"));
+}
+
+// Discover signable artifacts under `bin`. Returns an empty list if the
+// directory is missing or the glob crashes; never throws. Mirrors the
+// crash-tolerance of `hashDir` so a project without a `zig-out/bin`
+// (e.g. cargo-style layout) skips signing cleanly instead of aborting.
+//
+// Glob semantics (Bun.Glob): the pattern "*" matches TOP-LEVEL entries
+// only — files (and directories, but Bun.Glob.scanSync only yields paths
+// it can stat as files in this codepath) directly under `bin`. It does
+// NOT recurse. That matches the canonical zig layout: `zig build` writes
+// executables flat into `zig-out/bin/<exe>`, with no subdirectories. If
+// a future build emits nested artifacts (e.g. per-arch subdirs), this
+// pattern must change to a recursive globstar pattern and the caller's
+// signing loop needs to handle directory entries explicitly.
+//
+// Covered by tests/unit/sign-glob.test.ts — the "subdir non-recursion"
+// case is the regression boundary for this contract (R7-4).
+export function listArtifacts(bin: string): string[] {
+	// `"*"` = top-level entries only; intentionally non-recursive.
+	const glob = new Bun.Glob("*");
+	const out: string[] = [];
+	try {
+		for (const f of glob.scanSync({ cwd: bin, absolute: true })) out.push(f);
+	} catch (err) {
+		// ENOENT = missing bin/ → cargo-style layout, skip signing cleanly.
+		// EACCES / IO must propagate so release signing aborts loudly
+		// instead of silently producing an incomplete signed set.
+		if ((err as NodeJS.ErrnoException | undefined)?.code === "ENOENT")
+			return [];
+		throw err;
+	}
+	return out;
 }
 
 async function runFuzzBounded(
 	limit: string,
 	budgetSeconds: number,
 ): Promise<"pass" | "timeout" | number> {
-	const root = repoRoot();
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), budgetSeconds * 1000);
-	const cmd = [
-		"bun",
-		"-e",
-		"import { zig } from './scripts/lib/zig.ts';" +
-			"const args = JSON.parse(process.argv[1] ?? '[]');" +
-			"const r = zig(args);" +
-			"process.stdout.write(r.stdout);" +
-			"process.stderr.write(r.stderr);" +
-			"process.exit(r.code ?? 1);",
-		JSON.stringify([
-			"build",
-			"fuzz",
-			"--summary",
-			"failures",
-			`--fuzz=${limit}`,
-			`-j${cpuCount()}`,
-		]),
-	];
-	const proc = Bun.spawn(cmd, {
-		cwd: root,
-		stdout: "inherit",
-		stderr: "inherit",
-		stdin: "ignore",
-		signal: controller.signal,
-	});
-	try {
-		const code = await proc.exited;
-		clearTimeout(timer);
-		if (code === 0) return "pass";
-		return code;
-	} catch {
-		clearTimeout(timer);
-		return "timeout";
-	}
+	return runFuzz({ limit, timeoutMs: budgetSeconds * 1000 });
 }
 
 async function main(): Promise<void> {
@@ -142,7 +168,7 @@ async function main(): Promise<void> {
 	if (pr.exitCode !== 0) await finish(pr.exitCode ?? 1, startedAt);
 
 	console.log("== Clean non-incremental rebuild ==");
-	cleanArtifacts(root);
+	await cleanArtifacts(root);
 	const build1 = zig(["build", "--summary", "all"]);
 	process.stdout.write(build1.stdout);
 	process.stderr.write(build1.stderr);
@@ -151,10 +177,10 @@ async function main(): Promise<void> {
 		console.error(tail(build1.stderr || build1.stdout));
 		await finish(build1.code ?? 1, startedAt);
 	}
-	const h1 = hashZigOut(root);
+	const h1 = await hashZigOut(root);
 
 	console.log("== Reproducibility check (second clean rebuild) ==");
-	cleanArtifacts(root);
+	await cleanArtifacts(root);
 	const build2 = zig(["build", "--summary", "all"]);
 	process.stdout.write(build2.stdout);
 	process.stderr.write(build2.stderr);
@@ -162,7 +188,7 @@ async function main(): Promise<void> {
 		console.error("verify-release: second clean rebuild failed");
 		await finish(build2.code ?? 1, startedAt);
 	}
-	const h2 = hashZigOut(root);
+	const h2 = await hashZigOut(root);
 
 	if (h1.length === 0 && h2.length === 0) {
 		console.log(
@@ -239,17 +265,32 @@ async function main(): Promise<void> {
 	const inCI = process.env.CI === "true" || process.env.CI === "1";
 	if (hasCosign && cosignEnabled && inCI) {
 		const bin = resolve(root, "zig-out", "bin");
-		const glob = new Bun.Glob("*");
-		for (const artifact of glob.scanSync({ cwd: bin, absolute: true })) {
-			const sig = spawnSync(["cosign", "sign-blob", "--yes", artifact]);
-			if (sig.code !== 0) {
-				console.error(
-					`verify-release: cosign sign-blob failed for ${artifact}`,
-				);
-				await finish(sig.code ?? 1, startedAt);
+		const artifacts = listArtifacts(bin);
+		if (artifacts.length === 0) {
+			console.log(
+				"(no artifacts under zig-out/bin to sign; skipping cosign step)",
+			);
+		} else {
+			for (const artifact of artifacts) {
+				// `--output-signature` lets cosign write the .sig file directly so
+				// we do not have to capture its stdout (which mixes status output
+				// with the signature blob).
+				const sig = spawnSync([
+					"cosign",
+					"sign-blob",
+					"--yes",
+					"--output-signature",
+					`${artifact}.sig`,
+					artifact,
+				]);
+				if (sig.code !== 0) {
+					console.error(
+						`verify-release: cosign sign-blob failed for ${artifact}`,
+					);
+					await finish(sig.code ?? 1, startedAt);
+				}
+				console.log(`(signed ${artifact})`);
 			}
-			await Bun.write(`${artifact}.sig`, sig.stdout);
-			console.log(`(signed ${artifact})`);
 		}
 	} else {
 		console.log(
@@ -261,4 +302,9 @@ async function main(): Promise<void> {
 	await finish(0, startedAt);
 }
 
-await main();
+// Only run as a CLI when invoked directly. Importing for unit tests
+// (e.g. tests/unit/hash-zig-out.test.ts re-using `hashDir`) must not
+// trigger a full release verify pass.
+if (import.meta.main) {
+	await main();
+}
