@@ -15,7 +15,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { listArtifacts } from "../../scripts/verify-release.ts";
 
 test("listArtifacts returns [] for missing directory (no throw)", () => {
@@ -68,7 +68,10 @@ test("listArtifacts does NOT recurse into subdirectories (pattern '*' is top-lev
 		const out = listArtifacts(dir).sort();
 		// only the two top-level files (or, if Bun yields the subdir
 		// entry as a directory path, it would still not match "nested")
-		const justFileNames = out.map((p) => p.split("/").pop()).sort();
+		// `path.basename` is OS-aware; `split("/")` would mis-tokenise the
+		// absolute Windows paths Bun.Glob.scanSync yields when running on
+		// Windows hosts and break the assertion below.
+		const justFileNames = out.map((p) => basename(p)).sort();
 		expect(justFileNames).not.toContain("nested");
 		expect(justFileNames).toContain("top1");
 		expect(justFileNames).toContain("top2");

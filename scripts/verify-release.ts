@@ -19,7 +19,7 @@
  *   1 — real failure (build mismatch, fuzz crash, reproducibility drift)
  */
 import { rm } from "node:fs/promises";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { appendJsonl, repoRoot, spawnSync, tail } from "./lib/runtime.ts";
 import {
 	runFuzz,
@@ -79,8 +79,14 @@ export async function hashDir(dir: string): Promise<string> {
 	const files: string[] = [];
 	try {
 		for (const f of glob.scanSync({ cwd: dir, absolute: true })) files.push(f);
-	} catch {
-		return "";
+	} catch (err) {
+		// ENOENT = missing dir → degrade gracefully (caller's "no
+		// artifacts under zig-out/bin to sign" path). EACCES / IO errors
+		// must NOT be silently swallowed — they're real failures and
+		// would let a release sign over an incomplete artifact set.
+		if ((err as NodeJS.ErrnoException | undefined)?.code === "ENOENT")
+			return "";
+		throw err;
 	}
 	if (files.length === 0) return "";
 	files.sort();
@@ -90,7 +96,11 @@ export async function hashDir(dir: string): Promise<string> {
 	for (const f of files) {
 		const bytes = new Uint8Array(await Bun.file(f).arrayBuffer());
 		// path \0 size \0 bytes  → length-prefixed framing per file.
-		const rel = f.startsWith(`${dir}/`) ? f.slice(dir.length + 1) : f;
+		// Use path.relative + forward-slash normalisation so the digest is
+		// stable across platforms (manual `startsWith("${dir}/")` slicing
+		// fails on Windows where Bun.Glob may return forward slashes but
+		// `dir` from path.resolve uses backslashes).
+		const rel = relative(dir, f).replaceAll("\\", "/");
 		hasher.update(enc.encode(rel));
 		hasher.update(NUL);
 		hasher.update(enc.encode(String(bytes.byteLength)));
@@ -126,8 +136,13 @@ export function listArtifacts(bin: string): string[] {
 	const out: string[] = [];
 	try {
 		for (const f of glob.scanSync({ cwd: bin, absolute: true })) out.push(f);
-	} catch {
-		return [];
+	} catch (err) {
+		// ENOENT = missing bin/ → cargo-style layout, skip signing cleanly.
+		// EACCES / IO must propagate so release signing aborts loudly
+		// instead of silently producing an incomplete signed set.
+		if ((err as NodeJS.ErrnoException | undefined)?.code === "ENOENT")
+			return [];
+		throw err;
 	}
 	return out;
 }
