@@ -11,6 +11,9 @@ node_modules/
 .claude/logs/
 .claude/audit/
 
+# Runtime state — Cipher session DBs, never committed anywhere
+data/cipher-sessions*
+
 # Fuzz outputs (corpora are versioned explicitly via .gitkeep)
 fuzz/out/
 
