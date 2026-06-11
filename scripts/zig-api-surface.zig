@@ -1,6 +1,14 @@
 //! zig-api-surface — walk src/lib.zig (or any given .zig file) and emit a
-//! JSON inventory of every top-level `pub fn`, `pub const`, `pub var`,
-//! `pub usingnamespace` decl.
+//! JSON inventory of every top-level `pub fn`, `pub const`, and `pub var`
+//! decl.
+//!
+//! NOTE: `pub usingnamespace` is intentionally NOT classified. The
+//! `usingnamespace` keyword was removed from the language in Zig 0.15.1
+//! (still gone in 0.16), so it cannot appear in any file this tool targets
+//! — and the fitness gate (scripts/zig-fitness.zig) bans it outright. A
+//! re-export surface in 0.16 is expressed as `pub const X = @import(...)`
+//! (a `pub const`), which IS captured here. classifyDecl() therefore only
+//! handles fn and var/const declaration tags.
 //!
 //! Adapted from EugOT/gitstore-cli's scripts/zig-api-surface.zig (MIT).
 //! The logic is intentionally the same: a tiny AST walker over root decls.

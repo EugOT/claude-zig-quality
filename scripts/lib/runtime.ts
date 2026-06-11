@@ -31,12 +31,22 @@ export function cpuCount(): number {
 export function repoRoot(): string {
 	const fromEnv = process.env.CLAUDE_PROJECT_DIR;
 	if (fromEnv && fromEnv.length > 0) return resolve(fromEnv);
-	const proc = Bun.spawnSync(["jj", "workspace", "root"], { stdout: "pipe" });
-	if (proc.exitCode === 0) return proc.stdout.toString().trim();
-	const git = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
-		stdout: "pipe",
-	});
-	if (git.exitCode === 0) return git.stdout.toString().trim();
+	// Codex P1: Bun.spawnSync throws ENOENT (does not return a non-zero exit
+	// code) when the binary is absent. Wrap each probe so a missing jj/git
+	// falls through to the next candidate instead of crashing every verifier
+	// that imports repoRoot() in git-only or tool-less environments.
+	const trySpawn = (cmd: string[]): string | null => {
+		try {
+			const p = Bun.spawnSync(cmd, { stdout: "pipe" });
+			return p.exitCode === 0 ? p.stdout.toString().trim() : null;
+		} catch {
+			return null;
+		}
+	};
+	const jjRoot = trySpawn(["jj", "workspace", "root"]);
+	if (jjRoot) return jjRoot;
+	const gitRoot = trySpawn(["git", "rev-parse", "--show-toplevel"]);
+	if (gitRoot) return gitRoot;
 	return resolve(process.cwd());
 }
 
