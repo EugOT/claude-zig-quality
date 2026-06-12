@@ -101,9 +101,9 @@ sequential execution by default.
 
 | Subagent        | Model    | Role                                      | Tools narrow to              |
 |-----------------|----------|-------------------------------------------|------------------------------|
-| `zig-verifier`  | sonnet   | Read-only quality verifier                | verify-fast, verify-commit   |
-| `zig-fixer`     | sonnet   | Isolated, bounded-scope fixer             | edit + verify-fast           |
-| `zig-api-drift` | haiku    | Public-surface diff against baseline      | check-public-api.ts          |
+| `zig-api-drift`         | haiku    | Public-surface diff against baseline      | check-public-api.ts          |
+| `zig-fuzzer`            | sonnet   | Bounded fuzz campaigns + explicit degradation | fuzz step + verify-fast  |
+| `zig-release-engineer`  | opus     | Release gate, reproducibility, SBOM, signing  | verify-release + emit-sbom |
 
 Each subagent definition is in `.claude/agents/<name>.md` with a tool
 whitelist. None of them own commit authority; the main agent commits.

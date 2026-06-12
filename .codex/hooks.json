@@ -1,0 +1,70 @@
+{
+	"hooks": {
+		"PreToolUse": [
+			{
+				"matcher": "Bash",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun '/Users/etretiakov/ghq/github.com/EugOT/claude-zig-quality/.codex/hooks/pretooluse-bash-guard.ts'",
+						"timeout": 2
+					}
+				]
+			},
+			{
+				"matcher": "Write|Edit|MultiEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun '/Users/etretiakov/ghq/github.com/EugOT/claude-zig-quality/.codex/hooks/pretooluse-zig-preflight.ts'",
+						"timeout": 8
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "Write|Edit|MultiEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun '/Users/etretiakov/ghq/github.com/EugOT/claude-zig-quality/.codex/hooks/posttooluse-zig.ts'",
+						"timeout": 30
+					}
+				]
+			},
+			{
+				"matcher": "mcp__.*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun '/Users/etretiakov/ghq/github.com/EugOT/claude-zig-quality/.codex/hooks/mcp-boundary-scanner.ts'",
+						"timeout": 5
+					}
+				]
+			}
+		],
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun '/Users/etretiakov/ghq/github.com/EugOT/claude-zig-quality/.codex/hooks/session-start.ts'",
+						"timeout": 5
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun '/Users/etretiakov/ghq/github.com/EugOT/claude-zig-quality/.codex/hooks/stop-dod.ts'",
+						"timeout": 60
+					}
+				]
+			}
+		]
+	}
+}

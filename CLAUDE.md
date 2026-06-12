@@ -13,8 +13,8 @@ Rust, Python, R, and TypeScript by swapping the Zig-specific layer.
 - `.claude/skills/` — one primary (`zig-quality`) + adjuncts
   (`zig-build-system`, `zig-fuzz-target`, `prompt-infra-ref`) +
   task skills (`verify`, `release`, `api-drift`, `eval`)
-- `.claude/agents/` — three narrow subagents (`zig-verifier`,
-  `zig-fixer`, `zig-api-drift`)
+- `.claude/agents/` — three narrow subagents (`zig-api-drift`,
+  `zig-fuzzer`, `zig-release-engineer`)
 - `scripts/verify-{fast,commit,pr,release}.ts` — the four tiers
 - `scripts/zig-{api-surface,fitness}.zig`, `scripts/emit-sbom.zig` —
   Zig-native auxiliary programs

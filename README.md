@@ -82,9 +82,9 @@ Three narrow subagents under `.claude/agents/`:
 
 | Subagent | Model | Isolation | Role |
 |---|---|---|---|
-| `zig-verifier` | sonnet | read-only | fmt/ast/test audit, JSON verdict |
-| `zig-fixer` | sonnet | worktree | 0.14/0.15 → 0.16 migrations |
-| `zig-api-drift` | haiku | read-only | public-surface diff |
+| `zig-api-drift` | haiku | read-only | public-surface diff vs baseline |
+| `zig-fuzzer` | sonnet | fuzz | bounded fuzz + explicit degradation |
+| `zig-release-engineer` | opus | release | release gate, reproducibility, SBOM |
 
 The main session runs the gates directly and spawns subagents only when
 context isolation or genuine parallelism earns the token cost. This

@@ -35,12 +35,14 @@ pub fn main(init: std.process.Init) !u8 {
     const io = init.io;
 
     // Parse args: first positional is the .zig file to scan.
-    var arg_iter = std.process.Args.Iterator.init(init.minimal.args);
-    _ = arg_iter.next(); // exe name
-    const path = arg_iter.next() orelse {
+    // Args.Iterator.init is @compileError on Windows/WASI; toSlice with the
+    // process arena is the cross-platform 0.16 pattern.
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    if (args.len < 2) {
         try printErr(io, "usage: zig-api-surface <path-to.zig>\n");
         return 2;
-    };
+    }
+    const path = args[1];
 
     // Read source via the build_root-independent cwd.
     const source = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .unlimited) catch |err| {

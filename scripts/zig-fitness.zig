@@ -36,12 +36,14 @@ pub fn main(init: std.process.Init) !u8 {
     const gpa = init.gpa;
     const io = init.io;
 
-    var arg_iter = std.process.Args.Iterator.init(init.minimal.args);
-    _ = arg_iter.next(); // exe
-    const dir_arg = arg_iter.next() orelse {
+    // Args.Iterator.init is @compileError on Windows/WASI; toSlice with the
+    // process arena is the cross-platform 0.16 pattern.
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    if (args.len < 2) {
         try printErr(io, "usage: zig-fitness <dir>\n");
         return 2;
-    };
+    }
+    const dir_arg = args[1];
 
     var out_buf: [8192]u8 = undefined;
     var stdout_w = std.Io.File.stdout().writerStreaming(io, &out_buf);
