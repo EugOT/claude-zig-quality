@@ -6,6 +6,7 @@
  *
  * Only fires for .zig files. All others pass through with exit 0.
  */
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import {
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
 	const file = payload.tool_input?.file_path ?? "";
 	if (!file.endsWith(".zig")) {
 		emitPreTool({ kind: "allow" });
+		return;
 	}
 
 	// Codex P1: only Write provides full file content. Edit.new_string and
@@ -44,32 +46,51 @@ async function main(): Promise<void> {
 		proposed = payload.tool_input?.content;
 	} else {
 		emitPreTool({ kind: "allow" });
+		return;
 	}
 
 	if (!proposed || proposed.length === 0) {
 		emitPreTool({ kind: "allow" });
+		return;
+	}
+	// `proposed` is now a non-empty string (the guard above exits otherwise),
+	// so no non-null assertion is needed downstream.
+	const source: string = proposed;
+
+	// Dump to a per-invocation temp file and run zig ast-check (0.16 accepts a
+	// path). A unique UUID name avoids the cross-invocation collision that a
+	// shared static path (or `Date.now()`) hits under concurrent edits, where
+	// one invocation could validate another's contents. Clean up in `finally`
+	// so the temp file never leaks regardless of the ast-check outcome.
+	const tmp = resolve(tmpdir(), `preflight-${crypto.randomUUID()}.zig`);
+	let code: number | null;
+	let diagnostic: string;
+	try {
+		await Bun.write(tmp, source);
+		const r = zig(["ast-check", tmp]);
+		code = r.code;
+		diagnostic = tail(r.stderr || r.stdout, 1500);
+	} finally {
+		await rm(tmp, { force: true });
 	}
 
-	// Dump to temp file and run zig ast-check (0.16 accepts a path)
-	const tmp = resolve(tmpdir(), `preflight-${Date.now()}.zig`);
-	await Bun.write(tmp, proposed!);
-	const r = zig(["ast-check", tmp]);
-
 	await appendJsonl(".claude/logs/zig-preflight.jsonl", {
-		event: r.code === 0 ? "pass" : "fail",
+		event: code === 0 ? "pass" : "fail",
 		file,
 		tool,
-		code: r.code,
+		code,
 	});
 
-	if (r.code !== 0) {
+	if (code !== 0) {
 		emitPreTool({
 			kind: "pre-tool-decision",
 			permissionDecision: "deny",
-			permissionDecisionReason: `zig ast-check failed on proposed edit to ${file}:\n${tail(r.stderr || r.stdout, 1500)}`,
+			permissionDecisionReason: `zig ast-check failed on proposed edit to ${file}:\n${diagnostic}`,
 		});
+		return;
 	}
 	emitPreTool({ kind: "allow" });
+	return;
 }
 
 main().catch(async (err) => {

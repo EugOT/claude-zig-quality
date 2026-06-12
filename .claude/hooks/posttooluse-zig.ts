@@ -51,6 +51,7 @@ async function main(): Promise<void> {
 	const file = payload.tool_input?.file_path ?? "";
 	if (!file.endsWith(".zig")) {
 		emitPostTool({ kind: "allow" });
+		return;
 	}
 
 	// zig fmt --check
@@ -64,6 +65,7 @@ async function main(): Promise<void> {
 			kind: "block",
 			reason: `zig fmt --check failed on ${file}. Run \`zig fmt ${file}\` and re-edit.\n${tail(fmt.stderr)}`,
 		});
+		return;
 	}
 
 	// zig ast-check
@@ -77,6 +79,7 @@ async function main(): Promise<void> {
 			kind: "block",
 			reason: `zig ast-check failed on ${file}:\n${tail(ast.stderr || ast.stdout, 1500)}`,
 		});
+		return;
 	}
 
 	// Banned-API grep for the 0.14/0.15 → 0.16 drift
@@ -93,6 +96,7 @@ async function main(): Promise<void> {
 					kind: "block",
 					reason: `banned 0.14/0.15 API matched (${re.source}) in ${file}. Fix: ${fix}`,
 				});
+				return;
 			}
 		}
 	} catch {
@@ -104,6 +108,7 @@ async function main(): Promise<void> {
 		file,
 	});
 	emitPostTool({ kind: "allow" });
+	return;
 }
 
 main().catch(async (err) => {

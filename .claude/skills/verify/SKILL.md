@@ -26,9 +26,14 @@ skills so the primary interaction surface stays uniform.
 ## Dispatch
 
 - If the user supplies an argument, match it literally against the four
-  tiers above.
-- If the argument is empty, ambiguous, or unknown, fall back to `fast` and
-  state the fallback explicitly in the reply.
+  tiers above (`fast`, `commit`, `pr`, `release`).
+- **Fail closed on unknown tiers.** If the argument is present but is not
+  one of the four exact tier names (e.g. a typo like `prr` or `releas`),
+  reject it with a non-zero exit and an error naming the valid tiers. Do
+  **not** silently narrow to `fast` — a mistyped `pr`/`release` must never
+  run a weaker gate than intended.
+- Only default to `fast` when the user **omits** the argument entirely;
+  state that default explicitly in the reply.
 - Never invoke `verify-release.ts` implicitly; the `release` tier belongs
   to the `release` skill and requires explicit user intent.
 - Run the selected script with `bun`. Do not inline any TypeScript logic;

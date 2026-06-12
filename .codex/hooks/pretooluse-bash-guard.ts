@@ -57,6 +57,10 @@ async function main(): Promise<void> {
 				permissionDecision: "deny",
 				permissionDecisionReason: `pretooluse-bash-guard: blocked ${re.source} in "${cmd}". Use a reversible alternative or ask the user.`,
 			});
+			// emitPreTool() is typed `never` (calls process.exit), but keep the
+			// explicit return so a deny can never fall through to the later
+			// unconditional allow if emit is ever refactored to non-terminal.
+			return;
 		}
 	}
 
@@ -83,6 +87,7 @@ async function main(): Promise<void> {
 		tool: toolName,
 	});
 	emitPreTool({ kind: "allow" });
+	return;
 }
 
 main().catch(async (err) => {

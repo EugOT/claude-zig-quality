@@ -28,21 +28,22 @@ It does not call any external judge model.
 
 ```
 tests/evals/
-├── thresholds.json              # domain → pass/fail thresholds
-├── judge-prompt.md              # reserved for model-judge integration
+├── thresholds.json                  # domain → pass/fail thresholds
+├── judge-prompt.md                  # reserved for model-judge integration
 ├── domains/
-│   ├── idioms/fixtures/              # Zig 0.16 idiom violations vs compliant
-│   ├── allocator-discipline/fixtures/
-│   ├── error-set-discipline/fixtures/
-│   ├── io-injection/fixtures/        # std.Io boundary fixtures
-│   ├── build-system/fixtures/        # build.zig.zon / graph fixtures
-│   └── fuzz-target/fixtures/         # fuzz-target structure fixtures
-└── trajectories/*.jsonl         # golden prompt/build trajectories
+│   ├── idioms/                       # Zig 0.16 idiom violations vs compliant
+│   │   ├── 01-arraylist-init.zig
+│   │   └── 01-arraylist-init.expect.json
+│   ├── allocator-discipline/        # hidden vs propagated allocators
+│   ├── error-sets/                  # anyerror vs named error sets
+│   └── io-injection/                # std.Io boundary fixtures
+└── trajectories/*.jsonl             # golden prompt/build trajectories
 ```
 
-Each domain mirrors a quality axis enforced by the four-tier gate; evals
-live per-domain, not per-skill, so the nested skill layout does not force
-a flat eval mirror.
+Each domain holds flat `NN-name.zig` + `NN-name.expect.json` pairs (no
+nested `fixtures/` subdir). Domains map to quality axes enforced by the
+four-tier gate; evals live per-domain, not per-skill, so the nested skill
+layout does not force a flat eval mirror.
 
 ## Threshold policy
 

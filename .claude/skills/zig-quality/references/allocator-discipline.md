@@ -60,11 +60,18 @@ pub fn init(gpa: std.mem.Allocator) Cache { ... }
 - In tests: `std.testing.allocator` — fails the test on leak
   automatically.
 
-### R5 — Never wrap `Allocator` in a mutex
+### R5 — Arenas are single-threaded; give each thread its own
 
 `std.heap.ThreadSafeAllocator` was removed in 0.16 and declared an
-anti-pattern. `ArenaAllocator` is already lock-free and thread-safe.
-If you need per-thread arenas, allocate them per thread.
+anti-pattern. `std.heap.ArenaAllocator` is **not** thread-safe: its free
+list and bump pointer carry no internal synchronization, so concurrent
+`alloc`/`free` from multiple threads is a data race. There is no pinned
+Zig 0.16 fact asserting otherwise (see `0.16-grounded-facts.md`). If you
+need scratch allocation across threads, allocate **one arena per thread**
+(or per task) and never share a single arena; if a backing allocator must
+be shared, wrap that backing allocator in your own mutex rather than the
+arena. Per-thread arenas are the documented pattern precisely because they
+sidestep locking entirely.
 
 ### R6 — Tests enforce leak-free via `std.testing.allocator`
 
@@ -99,7 +106,9 @@ Fail on:
 
 - `var ` at module scope in files not named `main.zig` / `build.zig` →
   global smell.
-- `std.ArrayList(…)\.init\(` → must use `.empty`.
+- `ArrayList\([A-Za-z_][A-Za-z0-9_]*\)\.init\s*\(` → must use `.empty`
+  (matches `std.ArrayList(T).init(` and bare `ArrayList(T).init(`; the
+  posttool hook uses this exact pattern).
 - `std.heap.GeneralPurposeAllocator` → renamed to `DebugAllocator`.
 - `std.heap.ThreadSafeAllocator` → removed; anti-pattern.
 - `pub fn.*\(\s*\)\s*!\w+` whose body contains `.alloc(` → public fn

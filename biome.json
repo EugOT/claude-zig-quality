@@ -8,11 +8,12 @@
 	"files": {
 		"includes": [
 			"**",
-			"!**/.zig-cache/**",
-			"!**/zig-out/**",
-			"!**/node_modules/**",
-			"!**/.claude/logs/**",
-			"!**/.claude/audit/**",
+			"!**/.zig-cache",
+			"!**/zig-out",
+			"!**/node_modules",
+			"!**/.claude/logs",
+			"!**/.claude/audit",
+			"!**/.omc",
 			"!**/*.min.js",
 			"!**/*.min.css"
 		]

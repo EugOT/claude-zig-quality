@@ -43,7 +43,7 @@ did not pass.
      the current known-broken combination), print the explicit skip
      message from `scripts/lib/zig.ts`. **Degrade explicitly; do not
      lie.** This is the upstream-known broken path from plan §0.9 and
-     ADR `0006-darwin-fuzz-degradation.md`.
+     ADR `0003-darwin-fuzz-degradation.md`.
 5. **Reproducibility check.** Hash the build output twice:
    - Compute `H1 = shasum -a 256 zig-out/bin/* | shasum -a 256`.
    - Remove `.zig-cache` and `zig-out`.
@@ -91,7 +91,7 @@ Native fuzz rebuilding is upstream-broken on Darwin with Zig 0.16.0.
 The runtime must therefore:
 
 - Report the skip, not a green check.
-- Cite the ADR (`doc/adr/0006-darwin-fuzz-degradation.md`) in the
+- Cite the ADR (`doc/adr/0003-darwin-fuzz-degradation.md`) in the
   build log.
 - Not mask the skip with a `|| true` or similar shell trick.
 
