@@ -5,8 +5,8 @@
 //! Until upstream closes that gap this script is the forward-compatible
 //! fallback: it parses `build.zig.zon` via `std.zig.Ast` and emits a
 //! CycloneDX 1.5 document listing the project itself plus every entry
-//! under `.dependencies` with its `.hash` and (where available)
-//! `.fingerprint`.
+//! under `.dependencies` with its `.url` or `.path` and, when available,
+//! a CycloneDX-compatible SHA-256 derived from Zig's `.hash`.
 //!
 //! This script will be retired once `cyclonedx-cli` gains `.zon` support.
 //!
@@ -83,10 +83,9 @@ pub fn main(init: std.process.Init) !u8 {
 }
 
 /// Render the CycloneDX document to `w`. Extracted from `main` so the
-/// failure path (manifest declares `.dependencies`, stub returns null) is
-/// reachable from inline tests without needing a real stdout. Returns
-/// `SbomError.IncompleteSbom` when the manifest has a `.dependencies`
-/// block but the dependency stub yields no entries.
+/// failure path is reachable from inline tests without needing a real stdout.
+/// Returns `SbomError.IncompleteSbom` when the manifest has a
+/// `.dependencies` block that cannot be walked safely.
 fn emitSbomDocument(
     gpa: std.mem.Allocator,
     ast: std.zig.Ast,
@@ -142,15 +141,15 @@ fn emitSbomDocument(
     if (deps) |dep_list| {
         for (dep_list.entries) |entry| {
             const dep_name = entry.name;
-            const dep_hash = findStringFieldInStruct(ast, source, entry.init_idx, "hash") orelse "";
-            const dep_url = findStringFieldInStruct(ast, source, entry.init_idx, "url") orelse "";
+            const dep_hash = if (findStringFieldInStruct(ast, source, entry.init_idx, "hash")) |hash|
+                sha256FromZigHash(hash)
+            else
+                null;
+            const dep_ref = findStringFieldInStruct(ast, source, entry.init_idx, "url") orelse
+                findStringFieldInStruct(ast, source, entry.init_idx, "path");
 
             const dep_name_esc = try escapeJsonString(gpa, dep_name);
             defer gpa.free(dep_name_esc);
-            const dep_hash_esc = try escapeJsonString(gpa, dep_hash);
-            defer gpa.free(dep_hash_esc);
-            const dep_url_esc = try escapeJsonString(gpa, dep_url);
-            defer gpa.free(dep_url_esc);
 
             if (!first) try w.print(",\n", .{});
             first = false;
@@ -159,11 +158,30 @@ fn emitSbomDocument(
                 \\    {{
                 \\      "type": "library",
                 \\      "name": "{s}",
-                \\      "bom-ref": "pkg:zig/{s}",
-                \\      "hashes": [ {{ "alg": "SHA-256", "content": "{s}" }} ],
-                \\      "externalReferences": [ {{ "type": "distribution", "url": "{s}" }} ]
+                \\      "bom-ref": "pkg:zig/{s}"
+            , .{ dep_name_esc, dep_name_esc });
+            if (dep_hash) |hash| {
+                const dep_hash_esc = try escapeJsonString(gpa, hash);
+                defer gpa.free(dep_hash_esc);
+                try w.print(
+                    \\,
+                    \\
+                    \\      "hashes": [ {{ "alg": "SHA-256", "content": "{s}" }} ]
+                , .{dep_hash_esc});
+            }
+            if (dep_ref) |ref| {
+                const dep_ref_esc = try escapeJsonString(gpa, ref);
+                defer gpa.free(dep_ref_esc);
+                try w.print(
+                    \\,
+                    \\
+                    \\      "externalReferences": [ {{ "type": "distribution", "url": "{s}" }} ]
+                , .{dep_ref_esc});
+            }
+            try w.print(
+                \\
                 \\    }}
-            , .{ dep_name_esc, dep_name_esc, dep_hash_esc, dep_url_esc });
+            , .{});
         }
     }
 
@@ -230,20 +248,55 @@ fn stringTokenValue(ast: std.zig.Ast, source: []const u8, tok: std.zig.Ast.Token
     return raw[1 .. raw.len - 1];
 }
 
+fn sha256FromZigHash(hash: []const u8) ?[]const u8 {
+    if (hash.len == 68 and std.mem.startsWith(u8, hash, "1220") and isHexString(hash[4..])) {
+        return hash[4..];
+    }
+    if (hash.len == 64 and isHexString(hash)) {
+        return hash;
+    }
+    return null;
+}
+
+fn isHexString(s: []const u8) bool {
+    for (s) |c| {
+        if (!isHexDigit(c)) return false;
+    }
+    return s.len > 0;
+}
+
+fn isHexDigit(c: u8) bool {
+    return (c >= '0' and c <= '9') or
+        (c >= 'a' and c <= 'f') or
+        (c >= 'A' and c <= 'F');
+}
+
+fn fieldNameToken(ast: std.zig.Ast, node_idx: std.zig.Ast.Node.Index) ?std.zig.Ast.TokenIndex {
+    const first_tok: usize = @as(usize, ast.firstToken(node_idx));
+    if (first_tok < 2) return null;
+
+    const name_tok = first_tok - 2;
+    const token_tags = ast.tokens.items(.tag);
+    if (name_tok >= token_tags.len or token_tags[name_tok] != .identifier) return null;
+    return @intCast(name_tok);
+}
+
 /// Find `.<name> = .{...}` in the top-level zon struct init and return one
 /// DepEntry per field of that inner struct init. Returns null when the field
 /// is absent or its value is not a struct init — callers fail closed on
 /// declared-but-unextractable dependencies. Caller frees `entries`.
 fn findStructField(gpa: std.mem.Allocator, ast: std.zig.Ast, name: []const u8) !?DepList {
     // For .zon mode, rootDecls() is exactly the root expression node.
-    const root = ast.rootDecls()[0];
+    const roots = ast.rootDecls();
+    if (roots.len == 0) return null;
+    const root = roots[0];
     var root_buf: [2]std.zig.Ast.Node.Index = undefined;
     const root_init = ast.fullStructInit(&root_buf, root) orelse return null;
 
     for (root_init.ast.fields) |field_node| {
         // Field name is the identifier two tokens before the init
         // (`.name = <init>`) — same idiom as std/zon/parse.zig.
-        const name_tok = ast.firstToken(field_node) - 2;
+        const name_tok = fieldNameToken(ast, field_node) orelse continue;
         if (!std.mem.eql(u8, ast.tokenSlice(name_tok), name)) continue;
 
         var deps_buf: [2]std.zig.Ast.Node.Index = undefined;
@@ -252,7 +305,7 @@ fn findStructField(gpa: std.mem.Allocator, ast: std.zig.Ast, name: []const u8) !
         var entries: std.ArrayList(DepEntry) = .empty;
         errdefer entries.deinit(gpa);
         for (deps_init.ast.fields) |dep_node| {
-            const dep_name_tok = ast.firstToken(dep_node) - 2;
+            const dep_name_tok = fieldNameToken(ast, dep_node) orelse continue;
             try entries.append(gpa, .{
                 .name = ast.tokenSlice(dep_name_tok),
                 .init_idx = dep_node,
@@ -274,7 +327,7 @@ fn findStringFieldInStruct(
     var buf: [2]std.zig.Ast.Node.Index = undefined;
     const init = ast.fullStructInit(&buf, node_idx) orelse return null;
     for (init.ast.fields) |field_node| {
-        const name_tok = ast.firstToken(field_node) - 2;
+        const name_tok = fieldNameToken(ast, field_node) orelse continue;
         if (!std.mem.eql(u8, ast.tokenSlice(name_tok), field)) continue;
         if (ast.nodeTag(field_node) != .string_literal) return null;
         return stringTokenValue(ast, source, ast.nodeMainToken(field_node));
@@ -327,7 +380,8 @@ test "emitSbomDocument extracts declared dependencies into components" {
     const gpa = std.testing.allocator;
     // Fixture mirrors a real build.zig.zon with a `.dependencies` block.
     // v1 extraction must emit one CycloneDX component per entry, carrying
-    // the entry's name, hash, and url.
+    // the entry's name, distribution reference, and valid SHA-256 when Zig's
+    // multihash-formatted `.hash` is available.
     const fixture =
         \\.{
         \\    .name = .test_pkg,
@@ -337,7 +391,7 @@ test "emitSbomDocument extracts declared dependencies into components" {
         \\    .dependencies = .{
         \\        .some_dep = .{
         \\            .url = "https://example.invalid/x.tar.gz",
-        \\            .hash = "1220deadbeef",
+        \\            .hash = "1220aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         \\        },
         \\        .other_dep = .{
         \\            .path = "../other",
@@ -359,10 +413,15 @@ test "emitSbomDocument extracts declared dependencies into components" {
     try emitSbomDocument(gpa, ast, fixture, &w);
     const written = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, written, "\"name\": \"some_dep\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, written, "1220deadbeef") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "\"content\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "\"content\": \"1220") == null);
     try std.testing.expect(std.mem.indexOf(u8, written, "https://example.invalid/x.tar.gz") != null);
-    // Path-only dependency still appears as a component, with empty hash/url.
+    // Path-only dependency still appears as a component and uses `.path` as
+    // the distribution reference instead of emitting empty hash/url fields.
     try std.testing.expect(std.mem.indexOf(u8, written, "\"name\": \"other_dep\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "\"url\": \"../other\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "\"content\": \"\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "\"url\": \"\"") == null);
 }
 
 test "emitSbomDocument fails closed when dependencies value is not a struct init" {
@@ -417,6 +476,40 @@ test "emitSbomDocument succeeds for manifest with no dependencies block" {
     const written = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, written, "\"bomFormat\": \"CycloneDX\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, written, "leaf_pkg") != null);
+}
+
+test "emitSbomDocument omits malformed dependency hashes" {
+    const gpa = std.testing.allocator;
+    const fixture =
+        \\.{
+        \\    .name = .bad_hash_pkg,
+        \\    .version = "0.0.1",
+        \\    .fingerprint = 0x1234567890abcdef,
+        \\    .minimum_zig_version = "0.16.0",
+        \\    .dependencies = .{
+        \\        .bad_dep = .{
+        \\            .url = "https://example.invalid/bad.tar.gz",
+        \\            .hash = "1220deadbeef",
+        \\        },
+        \\    },
+        \\    .paths = .{""},
+        \\}
+    ;
+    const source_z = try gpa.dupeZ(u8, fixture);
+    defer gpa.free(source_z);
+
+    var ast = try std.zig.Ast.parse(gpa, source_z, .zon);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    var out_buf: [4096]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out_buf);
+
+    try emitSbomDocument(gpa, ast, fixture, &w);
+    const written = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, written, "\"name\": \"bad_dep\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "\"hashes\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "https://example.invalid/bad.tar.gz") != null);
 }
 
 test "escapeJsonString round-trips quotes, backslashes, and control characters" {
