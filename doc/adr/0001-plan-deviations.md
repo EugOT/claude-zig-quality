@@ -106,6 +106,10 @@ entry should include: plan reference, observed behavior, decision.
   delivered shape, or Prompt 4 should explicitly add `zig-fuzzer`/
   `zig-release-engineer` if the live adopter experience shows the main
   session is over-loaded.
+- **Resolution (2026-05-07):** reconciliation landed in commit `ba30bf0`
+  — `.claude/agents/` now ships `zig-api-drift`/`zig-fuzzer`/
+  `zig-release-engineer`, matching plan §3 and `doc/ARCHITECTURE.md` §4.
+  This deviation is closed; the bullets above are frozen history.
 
 ### Deviation 3 — `scripts/lib/files.ts` fsWalk bugfix
 

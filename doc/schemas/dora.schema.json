@@ -29,7 +29,7 @@
 			"maximum": 1
 		},
 		"mttr_hours": {
-			"description": "Mean Time to Restore: median hours to recover from a production failure. null = not yet measured.",
+			"description": "Mean Time to Restore: mean hours to recover from a production failure. null = not yet measured.",
 			"type": ["number", "null"],
 			"minimum": 0
 		}

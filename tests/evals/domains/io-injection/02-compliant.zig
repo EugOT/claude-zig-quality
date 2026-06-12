@@ -8,6 +8,9 @@
 const std = @import("std");
 
 pub fn greet(_: std.Io, w: *std.Io.Writer, name: []const u8) !void {
+    // Fixture limitation, accepted: names longer than ~119 chars make
+    // bufPrint return error.NoSpaceLeft. The eval tests the injection
+    // pattern, not production robustness.
     var buf: [128]u8 = undefined;
     const rendered = try std.fmt.bufPrint(&buf, "hello, {s}\n", .{name});
     try w.writeAll(rendered);

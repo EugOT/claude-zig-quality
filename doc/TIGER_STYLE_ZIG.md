@@ -110,7 +110,7 @@ isolation.
 |---------------------------------------------|------------------------------------------------------------|
 | `std.ArrayList(T).init(alloc)`              | `var list: std.ArrayList(T) = .empty;` + `append(alloc, x)` |
 | `list.append(x)`                            | `list.append(alloc, x)`                                     |
-| `std.heap.GeneralPurposeAllocator(.{}){}`   | `std.heap.DebugAllocator(.{})`                              |
+| `std.heap.GeneralPurposeAllocator(.{}){}`   | `std.heap.DebugAllocator(.{})` — caller-side wiring only (tests, `main`); libraries still take an injected `std.mem.Allocator` (§1.1) |
 | `std.mem.Allocator{}`                       | Always propagate, never construct                          |
 | `fs.File.reader()`                          | `fs.File.deprecatedReader()` in transitional code          |
 | `std.process.argsAlloc(alloc)`              | `std.process.argsAlloc(alloc)` (unchanged, `os.argv` gone) |

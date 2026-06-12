@@ -33,12 +33,14 @@ pub fn main(init: std.process.Init) !u8 {
     const gpa = init.gpa;
     const io = init.io;
 
-    var arg_iter = std.process.Args.Iterator.init(init.minimal.args);
-    _ = arg_iter.next();
-    const path = arg_iter.next() orelse {
+    // Args.Iterator.init is @compileError on Windows/WASI; toSlice with the
+    // process arena is the cross-platform 0.16 pattern.
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    if (args.len < 2) {
         try printErr(io, "usage: emit-sbom <path-to-build.zig.zon>\n");
         return 2;
-    };
+    }
+    const path = args[1];
 
     // build.zig.zon files are tiny; read with an explicit cap rather than
     // .unlimited so a tampered/unbounded file cannot OOM the emitter
@@ -68,7 +70,7 @@ pub fn main(init: std.process.Init) !u8 {
     emitSbomDocument(gpa, ast, source, w) catch |err| switch (err) {
         SbomError.IncompleteSbom => {
             std.log.err(
-                "manifest declares `.dependencies` but the v1 stub could not extract any entries; refusing to publish an incomplete SBOM (see claude-zig-quality#TBD)",
+                "manifest declares `.dependencies` but the v1 stub could not extract any entries; refusing to publish an incomplete SBOM (see claude-zig-quality#3)",
                 .{},
             );
             return 1;
@@ -229,14 +231,14 @@ fn stringTokenValue(ast: std.zig.Ast, source: []const u8, tok: std.zig.Ast.Token
 
 /// v1 fallback: dependency-table discovery is a TODO. Emits an empty list
 /// for projects with no `.dependencies = .{...}` block (like the v0 scaffold).
-// TODO(claude-zig-quality#TBD): implement v1 SBOM dependency extraction
+// TODO(claude-zig-quality#3): implement v1 SBOM dependency extraction
 fn findStructField(ast: std.zig.Ast, name: []const u8) ?DepList {
     _ = ast;
     _ = name;
     return null;
 }
 
-// TODO(claude-zig-quality#TBD): implement v1 SBOM dependency extraction
+// TODO(claude-zig-quality#3): implement v1 SBOM dependency extraction
 fn findStringFieldInStruct(
     ast: std.zig.Ast,
     source: []const u8,

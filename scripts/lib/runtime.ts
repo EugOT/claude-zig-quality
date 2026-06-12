@@ -173,10 +173,13 @@ export async function appendJsonl(
 }
 
 /**
- * Last-N-bytes tail for stderr that gets fed back to the agent. Keeps
- * context small and deterministic.
+ * Last-N-characters tail for stderr that gets fed back to the agent. Keeps
+ * context small and deterministic. Truncation is deliberately character-based
+ * (UTF-16 code units via String.length/slice), not byte-based: byte slicing
+ * could split a multi-byte UTF-8 sequence and feed invalid text back to the
+ * agent. Worst case the tail spans ~4x the character count in bytes.
  */
-export function tail(s: string, bytes = 2048): string {
-	if (s.length <= bytes) return s;
-	return `…\n${s.slice(s.length - bytes)}`;
+export function tail(s: string, maxChars = 2048): string {
+	if (s.length <= maxChars) return s;
+	return `…\n${s.slice(s.length - maxChars)}`;
 }

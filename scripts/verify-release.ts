@@ -66,10 +66,9 @@ async function cleanArtifacts(root: string): Promise<void> {
  * length-prefix framing makes the digest unambiguous: distinct artifact sets
  * always produce distinct digests.
  *
- * NOTE (Codex R7 P2 follow-up — STALE): the prior commit already added the
- * length-prefixed framing below (`path \0 size \0 bytes`). Re-asserting it
- * here so future drive-by edits do not regress to a naive `hasher.update(bytes)`
- * loop. See tests/unit/hash-zig-out.test.ts for the differential cases.
+ * NOTE: the length-prefixed framing below (`path \0 size \0 bytes`) is
+ * load-bearing; do not regress to a naive `hasher.update(bytes)` loop.
+ * See tests/unit/hash-zig-out.test.ts for the differential cases.
  *
  * Exported so unit tests can exercise the framing on a synthetic tmpdir
  * without spinning up a real `zig build`.
