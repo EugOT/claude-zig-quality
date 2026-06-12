@@ -113,7 +113,7 @@ isolation.
 | `std.heap.GeneralPurposeAllocator(.{}){}`   | `std.heap.DebugAllocator(.{})` — caller-side wiring only (tests, `main`); libraries still take an injected `std.mem.Allocator` (§1.1) |
 | `std.mem.Allocator{}`                       | Always propagate, never construct                          |
 | `fs.File.reader()`                          | `fs.File.deprecatedReader()` in transitional code          |
-| `std.process.argsAlloc(alloc)`              | `std.process.argsAlloc(alloc)` (unchanged, `os.argv` gone) |
+| `std.process.argsAlloc(alloc)`              | `init.minimal.args.toSlice(init.arena.allocator())` via Juicy Main `pub fn main(init: std.process.Init)` (`os.argv` gone) |
 | `std.BoundedArray`                          | Removed in **0.15.1** (still gone in 0.16); roll your own  |
 | `std.LinearFifo`                            | Removed in **0.15.1** (still gone in 0.16); use `std.fifo` |
 | `b.addExecutable(.{ .root_source_file = f })` | `b.addExecutable(.{ .root_module = m })`                 |

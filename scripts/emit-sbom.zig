@@ -256,27 +256,27 @@ fn findStringFieldInStruct(
 /// characters `\n`/`\r`/`\t`/`\b`/`\f` plus any remaining byte in the
 /// `\u{0000}`-`\u{001F}` range as `\u00XX`. Caller owns the returned slice.
 fn escapeJsonString(gpa: std.mem.Allocator, s: []const u8) ![]u8 {
-    var buf: std.array_list.Managed(u8) = std.array_list.Managed(u8).init(gpa);
-    errdefer buf.deinit();
+    var buf: std.ArrayList(u8) = .empty;
+    errdefer buf.deinit(gpa);
     for (s) |c| {
         switch (c) {
-            '"' => try buf.appendSlice("\\\""),
-            '\\' => try buf.appendSlice("\\\\"),
-            '\n' => try buf.appendSlice("\\n"),
-            '\r' => try buf.appendSlice("\\r"),
-            '\t' => try buf.appendSlice("\\t"),
-            0x08 => try buf.appendSlice("\\b"),
-            0x0C => try buf.appendSlice("\\f"),
+            '"' => try buf.appendSlice(gpa, "\\\""),
+            '\\' => try buf.appendSlice(gpa, "\\\\"),
+            '\n' => try buf.appendSlice(gpa, "\\n"),
+            '\r' => try buf.appendSlice(gpa, "\\r"),
+            '\t' => try buf.appendSlice(gpa, "\\t"),
+            0x08 => try buf.appendSlice(gpa, "\\b"),
+            0x0C => try buf.appendSlice(gpa, "\\f"),
             0x00...0x07, 0x0B, 0x0E...0x1F => {
                 const hex_digits = "0123456789abcdef";
-                try buf.appendSlice("\\u00");
-                try buf.append(hex_digits[(c >> 4) & 0xF]);
-                try buf.append(hex_digits[c & 0xF]);
+                try buf.appendSlice(gpa, "\\u00");
+                try buf.append(gpa, hex_digits[(c >> 4) & 0xF]);
+                try buf.append(gpa, hex_digits[c & 0xF]);
             },
-            else => try buf.append(c),
+            else => try buf.append(gpa, c),
         }
     }
-    return buf.toOwnedSlice();
+    return buf.toOwnedSlice(gpa);
 }
 
 fn printErr(io: std.Io, msg: []const u8) !void {
