@@ -56,7 +56,7 @@ pub fn main(init: std.process.Init) !u8 {
         for (stack.items) |p| gpa.free(p);
         stack.deinit(gpa);
     }
-    try stack.append(gpa, try gpa.dupe(u8, dir_arg));
+    try appendOwnedPath(gpa, &stack, try gpa.dupe(u8, dir_arg));
 
     while (stack.pop()) |current| {
         defer gpa.free(current);
@@ -71,7 +71,7 @@ pub fn main(init: std.process.Init) !u8 {
         while (try it.next(io)) |entry| {
             const joined = try std.fs.path.join(gpa, &.{ current, entry.name });
             switch (entry.kind) {
-                .directory => try stack.append(gpa, joined),
+                .directory => try appendOwnedPath(gpa, &stack, joined),
                 .file => {
                     defer gpa.free(joined);
                     if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
@@ -249,6 +249,11 @@ fn containsAny(haystack: []const u8, needles: []const []const u8) bool {
         if (std.mem.indexOf(u8, haystack, n) != null) return true;
     }
     return false;
+}
+
+fn appendOwnedPath(gpa: std.mem.Allocator, stack: *std.ArrayList([]u8), path: []u8) !void {
+    errdefer gpa.free(path);
+    try stack.append(gpa, path);
 }
 
 /// Heuristic: scan the function signature for a lonely `!` followed by an
