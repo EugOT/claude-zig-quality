@@ -1,0 +1,80 @@
+name: verify-pr
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+
+concurrency:
+  group: verify-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zig-gate:
+    name: Zig quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install mise
+        run: |
+          curl https://mise.run | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+
+      - name: Install Zig 0.16.0 via mise
+        run: mise use -g zig@0.16.0
+
+      - name: Verify Zig toolchain resolves
+        run: mise x zig@0.16.0 -- zig version
+
+      - name: Bun install
+        run: |
+          set +e
+          bun install --frozen-lockfile
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -ne 0 ]; then
+            echo "::error::bun install --frozen-lockfile failed (exit ${exit_code}); see logs above for details"
+            exit "$exit_code"
+          fi
+
+      - name: Run verify-pr gate
+        run: ./scripts/verify-pr.sh
+
+  evals:
+    name: Eval structural check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: zig-gate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+
+      - name: Bun install
+        run: |
+          set +e
+          bun install --frozen-lockfile
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -ne 0 ]; then
+            echo "::error::bun install --frozen-lockfile failed (exit ${exit_code}); see logs above for details"
+            exit "$exit_code"
+          fi
+
+      - name: Run eval structural check
+        run: bun scripts/eval.ts --check

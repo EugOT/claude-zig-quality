@@ -1,0 +1,22 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  release-placeholder:
+    name: Release placeholder
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Announce deferred release flow
+        run: |
+          echo "Release is handled in a separate flow per plan section 0.12."
+          echo "This workflow is a skeleton only — no signing, no SBOM, no publish."
+          echo "To ship a release, run verify-release locally through the release skill."
+          exit 0

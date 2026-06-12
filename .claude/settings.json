@@ -1,0 +1,84 @@
+{
+	"$schema": "https://json.schemastore.org/claude-code-settings.json",
+	"permissions": {
+		"deny": [
+			"Bash(rm -rf *)",
+			"Bash(git push *)",
+			"Bash(git push --force *)",
+			"Bash(git tag *)",
+			"Bash(cosign *)",
+			"Bash(chezmoi purge *)",
+			"Read(.env)",
+			"Read(**/.env)",
+			"Edit(.git/**)"
+		]
+	},
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun ${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.ts",
+						"timeout": 5
+					}
+				]
+			}
+		],
+		"PreToolUse": [
+			{
+				"matcher": "Bash",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun ${CLAUDE_PROJECT_DIR}/.claude/hooks/pretooluse-bash-guard.ts",
+						"timeout": 2
+					}
+				]
+			},
+			{
+				"matcher": "Write|Edit|MultiEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun ${CLAUDE_PROJECT_DIR}/.claude/hooks/pretooluse-zig-preflight.ts",
+						"timeout": 8
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "Write|Edit|MultiEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun ${CLAUDE_PROJECT_DIR}/.claude/hooks/posttooluse-zig.ts",
+						"timeout": 30
+					}
+				]
+			},
+			{
+				"matcher": "mcp__.*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun ${CLAUDE_PROJECT_DIR}/.claude/hooks/mcp-boundary-scanner.ts",
+						"timeout": 5
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun ${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-dod.ts",
+						"timeout": 60
+					}
+				]
+			}
+		]
+	}
+}

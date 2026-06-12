@@ -1,0 +1,6 @@
+{
+	"idioms": {
+		"score_min": 0.95,
+		"must_not_flag": ["buildList"]
+	}
+}

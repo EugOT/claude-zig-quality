@@ -1,0 +1,9 @@
+{
+	"io-injection": {
+		"score_max": 0.2,
+		"must_flag": [
+			"greet writes to stdout without accepting a std.Io parameter; Zig 0.16 requires Io injection at the API boundary"
+		],
+		"must_not_flag": []
+	}
+}

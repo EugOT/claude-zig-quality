@@ -1,0 +1,28 @@
+# Zig
+.zig-cache/
+zig-out/
+zig-pkg/
+
+# Bun
+node_modules/
+
+# Agent scratch (not committed)
+.agent/scratch/
+.claude/logs/
+.claude/audit/
+
+# Runtime state — Cipher session DBs, never committed anywhere
+data/cipher-sessions*
+
+# Fuzz outputs (corpora are versioned explicitly via .gitkeep)
+fuzz/out/
+
+# OS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+
+# Build report (scratch only)
+*.log
