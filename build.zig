@@ -14,6 +14,11 @@
 //!     enumerate fuzz-annotated tests (Zig 0.16 integrated Smith fuzzer).
 
 const std = @import("std");
+// Lint backend: the EugOT/ziglint fork (Zig 0.16). Pinned in build.zig.zon.
+// ADOPTER OPT-OUT: a downstream project that does not want the lint gate can
+// remove this import, the `lint` step below, and the `.ziglint` entry in
+// build.zig.zon — the rest of the build graph has no dependency on it.
+const ziglint = @import("ziglint");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -112,4 +117,19 @@ pub fn build(b: *std.Build) void {
     });
     const docs_step = b.step("docs", "Install generated API docs");
     docs_step.dependOn(&docs_install.step);
+
+    // ----------------------------------------------------------------- lint
+    // `zig build lint` runs the pinned EugOT/ziglint fork over src/ + build
+    // descriptors. Kept OUT of `test_step` on purpose: per-turn verify-fast
+    // stays sub-second (it uses a PATH `ziglint` if present), while the
+    // per-commit and per-PR gates invoke `zig build lint` for authoritative,
+    // PATH-independent enforcement. ziglint.addLint enforces exit 0, so any
+    // finding fails this step.
+    const lint_step = b.step("lint", "Run ziglint over sources and build files");
+    const ziglint_dep = b.dependency("ziglint", .{ .optimize = .ReleaseFast });
+    lint_step.dependOn(ziglint.addLint(
+        b,
+        ziglint_dep,
+        &.{ b.path("src"), b.path("scripts"), b.path("build.zig") },
+    ));
 }

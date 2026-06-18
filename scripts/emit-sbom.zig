@@ -45,8 +45,8 @@ pub fn main(init: std.process.Init) !u8 {
     // build.zig.zon files are tiny; read with an explicit cap rather than
     // .unlimited so a tampered/unbounded file cannot OOM the emitter
     // (CodeRabbit finding). 1 MiB is far above any plausible manifest.
-    const MAX_ZON_BYTES: usize = 1 << 20;
-    const source = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(MAX_ZON_BYTES)) catch |err| {
+    const max_zon_bytes: usize = 1 << 20;
+    const source = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(max_zon_bytes)) catch |err| {
         try printErrFmt(io, "cannot read {s}: {s}\n", .{ path, @errorName(err) });
         return 1;
     };
@@ -70,7 +70,9 @@ pub fn main(init: std.process.Init) !u8 {
     emitSbomDocument(gpa, ast, source, w) catch |err| switch (err) {
         SbomError.IncompleteSbom => {
             std.log.err(
-                "manifest declares `.dependencies` but its value could not be walked as a struct init; refusing to publish an incomplete SBOM (see claude-zig-quality#3)",
+                "manifest declares `.dependencies` but its value could not be " ++
+                    "walked as a struct init; refusing to publish an incomplete " ++
+                    "SBOM (see claude-zig-quality#3)",
                 .{},
             );
             return 1;
@@ -272,7 +274,7 @@ fn isHexDigit(c: u8) bool {
 }
 
 fn fieldNameToken(ast: std.zig.Ast, node_idx: std.zig.Ast.Node.Index) ?std.zig.Ast.TokenIndex {
-    const first_tok: usize = @as(usize, ast.firstToken(node_idx));
+    const first_tok: usize = ast.firstToken(node_idx);
     if (first_tok < 2) return null;
 
     const name_tok = first_tok - 2;
@@ -413,7 +415,8 @@ test "emitSbomDocument extracts declared dependencies into components" {
     try emitSbomDocument(gpa, ast, fixture, &w);
     const written = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, written, "\"name\": \"some_dep\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, written, "\"content\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"") != null);
+    const long_content = "\"content\": \"" ++ ("a" ** 64) ++ "\"";
+    try std.testing.expect(std.mem.indexOf(u8, written, long_content) != null);
     try std.testing.expect(std.mem.indexOf(u8, written, "\"content\": \"1220") == null);
     try std.testing.expect(std.mem.indexOf(u8, written, "https://example.invalid/x.tar.gz") != null);
     // Path-only dependency still appears as a component and uses `.path` as

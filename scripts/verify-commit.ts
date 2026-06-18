@@ -13,7 +13,7 @@
  */
 import { resolve } from "node:path";
 import { appendJsonl, repoRoot, tail } from "./lib/runtime.ts";
-import { zig } from "./lib/zig.ts";
+import { hasBuildStep, zig } from "./lib/zig.ts";
 
 const TIER = "commit" as const;
 
@@ -58,6 +58,28 @@ async function main(): Promise<void> {
 		);
 		console.error(tail(test.stderr || test.stdout));
 		await finish(test.code ?? 1, startedAt);
+	}
+
+	// Authoritative lint gate: `zig build lint` runs the pinned EugOT/ziglint
+	// fork (PATH-independent, unlike verify-fast's optional PATH probe). Guarded
+	// by hasBuildStep so an adopter who opted out of the ziglint dependency —
+	// removing the `lint` step — is not broken by this gate.
+	if (hasBuildStep("lint")) {
+		console.log("== zig build lint (EugOT/ziglint, pinned) ==");
+		const lint = zig(["build", "lint", "--summary", "failures"]);
+		process.stdout.write(lint.stdout);
+		process.stderr.write(lint.stderr);
+		if (lint.code !== 0) {
+			console.error(
+				`verify-commit: zig build lint failed (exit ${lint.code ?? "?"})`,
+			);
+			console.error(tail(lint.stderr || lint.stdout));
+			await finish(lint.code ?? 1, startedAt);
+		}
+	} else {
+		console.log(
+			"(no `lint` build step — ziglint dependency not wired; skipping lint gate)",
+		);
 	}
 
 	const libZig = Bun.file(resolve(root, "src/lib.zig"));

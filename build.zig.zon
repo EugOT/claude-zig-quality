@@ -3,7 +3,12 @@
     .version = "0.1.0",
     .fingerprint = 0x82becdb751986aab,
     .minimum_zig_version = "0.16.0",
-    .dependencies = .{},
+    .dependencies = .{
+        .ziglint = .{
+            .url = "git+https://github.com/EugOT/ziglint.git?ref=main#a2fa56aa6a26181f9d6f586203fe65fc6c4c11c9",
+            .hash = "ziglint-0.5.2-t0bwLzCwBQA69qkf9xumLCiu4N7jqxuzjBy8Abpga7v9",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",

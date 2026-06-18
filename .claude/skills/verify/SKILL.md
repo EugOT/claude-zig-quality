@@ -43,7 +43,9 @@ skills so the primary interaction surface stays uniform.
 
 - **fast** — `zig fmt --check`, `zig ast-check`, scoped unit tests on
   touched modules. Green light for the inner loop.
-- **commit** — adds broader unit tests, `ziglint`, and the §4 scope-aware
+- **commit** — adds broader unit tests, the authoritative `zig build lint`
+  gate (pinned `EugOT/ziglint` fork, PATH-independent; guarded by
+  `hasBuildStep("lint")` for adopter opt-out), and the §4 scope-aware
   checks so commits cannot land with trivially fixable drift.
 - **pr** — adds cross-target build matrix, full test suite,
   `check-public-api` (read mode), short fuzz smoke, and eval structural

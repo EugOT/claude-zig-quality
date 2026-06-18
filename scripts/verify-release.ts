@@ -22,6 +22,7 @@ import { rm } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { appendJsonl, repoRoot, spawnSync, tail } from "./lib/runtime.ts";
 import {
+	hasBuildStep,
 	runFuzz,
 	zig,
 	zigFuzzSkipMessage,
@@ -39,14 +40,6 @@ async function finish(code: number, startedAt: number): Promise<never> {
 		durationMs,
 	});
 	process.exit(code);
-}
-
-function hasBuildStep(step: string): boolean {
-	const listing = zig(["build", "-l"]);
-	const text = `${listing.stdout}\n${listing.stderr}`;
-	const escaped = step.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const re = new RegExp(`^[\\t ]*${escaped}(?:\\s|$)`, "m");
-	return re.test(text);
 }
 
 async function cleanArtifacts(root: string): Promise<void> {

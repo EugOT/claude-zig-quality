@@ -18,6 +18,7 @@ import { appendJsonl, repoRoot, tail } from "./lib/runtime.ts";
  *   1 — real failure (fuzz crash, build/test failure)
  */
 import {
+	hasBuildStep,
 	runFuzz,
 	zig,
 	zigFuzzSkipMessage,
@@ -52,14 +53,6 @@ async function finish(code: number, startedAt: number): Promise<never> {
 		durationMs,
 	});
 	process.exit(code);
-}
-
-function hasBuildStep(step: string): boolean {
-	const listing = zig(["build", "-l"]);
-	const text = `${listing.stdout}\n${listing.stderr}`;
-	const escaped = step.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const re = new RegExp(`^[\\t ]*${escaped}(?:\\s|$)`, "m");
-	return re.test(text);
 }
 
 async function runFuzzBounded(
