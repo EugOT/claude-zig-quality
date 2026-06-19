@@ -1,0 +1,106 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Repo-specific CodeRabbit configuration for EugOT/claude-zig-quality.
+# Keep this file short: prompts and review rules are technical debt too.
+
+inheritance: true
+language: "en-US"
+early_access: true
+focus: "high"
+tone_instructions: "Focus on Zig correctness, memory/resource ownership, deterministic builds, and secret-safe tooling. Cite file:line and avoid generic style comments."
+
+chat:
+  auto_reply: true
+  art: false
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_instructions: "Summarize WHY, WHAT, RISK, and VALIDATION in concise bullets."
+  high_level_summary_in_walkthrough: true
+  auto_title_instructions: "Use Conventional Commits under 70 characters."
+  review_status: true
+  review_details: true
+  commit_status: true
+  fail_commit_status: true
+  changed_files_summary: true
+  sequence_diagrams: false
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: false
+  related_prs: false
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: false
+  auto_assign_reviewers: false
+  in_progress_fortune: false
+  collapse_walkthrough: true
+  poem: false
+  enable_prompt_for_ai_agents: true
+  abort_on_close: true
+  disable_cache: false
+  auto_review:
+    enabled: false
+    drafts: false
+    auto_incremental_review: true
+    ignore_title_keywords: ["WIP", "DO NOT MERGE", "[skip-review]", "[no-review]"]
+    ignore_usernames: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
+    labels: ["review-ready", "!skip-review", "!no-coderabbit"]
+  path_filters:
+    - "!**/.git/**"
+    - "!**/.jj/**"
+    - "!**/.cache/**"
+    - "!**/.direnv/**"
+    - "!**/.pixi/**"
+    - "!**/.venv/**"
+    - "!**/node_modules/**"
+    - "!**/.zig-cache/**"
+    - "!**/zig-cache/**"
+    - "!**/zig-out/**"
+    - "!**/target/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/coverage/**"
+    - "!**/__snapshots__/**"
+    - "!**/fixtures/**"
+    - "!**/vendor/**"
+    - "!**/data/**"
+    - "!**/outputs/**"
+    - "!**/artifacts/**"
+    - "!**/archive/**"
+    - "!**/*.lock"
+    - "!**/Cargo.lock"
+    - "!**/bun.lockb"
+    - "!**/package-lock.json"
+    - "!**/pnpm-lock.yaml"
+    - "!**/pixi.lock"
+    - "!**/Manifest.toml"
+    - "!**/flake.lock"
+  path_instructions:
+    - path: "**/*.{zig,zon}"
+      instructions: "Check allocator ownership, error propagation, build.zig.zon package hygiene, and version compatibility. Flag silent catch blocks, plaintext secrets, and generated/vendor edits."
+    - path: "**/{AGENTS.md,CLAUDE.md,GEMINI.md,WARP.md,PROMPT.md,.github/copilot-instructions.md}"
+      instructions: "Treat agent instructions as technical debt. Prefer short repo-specific contracts, explicit commands, and deletion of stale or duplicated prompt text."
+  tools:
+    gitleaks: { enabled: true }
+    trufflehog: { enabled: true }
+    semgrep: { enabled: true }
+    opengrep: { enabled: true }
+    osvScanner: { enabled: true }
+    shellcheck: { enabled: true }
+    yamllint: { enabled: true }
+    markdownlint: { enabled: true }
+    actionlint: { enabled: true }
+    zizmor: { enabled: true }
+    skillspector: { enabled: true }
+
+knowledge_base:
+  opt_out: false
+  web_search: { enabled: true }
+  code_guidelines: { enabled: true }
+  learnings: { scope: "local", approval_delay: 30 }
+  issues: { scope: "local" }
+  pull_requests: { scope: "local" }
+  automatic_repository_linking: false
+  mcp: { usage: "disabled" }
+  linked_repositories: []
