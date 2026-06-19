@@ -18,7 +18,11 @@
 
 const std = @import("std");
 
+/// Re-export of `std.mem.Allocator`, the allocator interface every
+/// allocating function in this module takes explicitly (§1.1).
 pub const Allocator = std.mem.Allocator;
+/// Re-export of `std.Io`, the I/O interface injected at the boundary so
+/// the library stays testable with a traced/mocked backend (§1.3).
 pub const Io = std.Io;
 
 /// Named error set for `hello`. Keeps the public API auditable: adding a new

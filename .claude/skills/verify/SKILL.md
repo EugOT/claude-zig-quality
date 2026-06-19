@@ -48,8 +48,10 @@ skills so the primary interaction surface stays uniform.
   `hasBuildStep("lint")` for adopter opt-out), and the §4 scope-aware
   checks so commits cannot land with trivially fixable drift.
 - **pr** — adds cross-target build matrix, full test suite,
-  `check-public-api` (read mode), short fuzz smoke, and eval structural
-  checks.
+  `check-public-api` (read mode), the ZLS semantic-diagnostics gate
+  (`zls-check.ts`; degrades loudly if no pinned ZLS), doc-coverage
+  (`zig-doc-coverage.zig`; every `pub` decl documented, §10), short fuzz
+  smoke, and eval structural checks.
 - **release** — adds long-fuzz budget, SBOM, signed-tag dry-run, reproducible
   build check. Release-only; the `release` skill owns it.
 

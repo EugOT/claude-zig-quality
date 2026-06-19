@@ -112,6 +112,30 @@ async function main(): Promise<void> {
 		}
 	}
 
+	console.log("== ZLS semantic diagnostics ==");
+	const zls = Bun.spawnSync(["bun", "scripts/zls-check.ts"], {
+		cwd: root,
+		stdout: "inherit",
+		stderr: "inherit",
+		stdin: "ignore",
+	});
+	if (zls.exitCode !== 0) {
+		console.error("verify-pr: ZLS semantic gate failed");
+		await finish(zls.exitCode ?? 1, startedAt);
+	}
+
+	console.log("== Doc coverage (every pub decl documented, §10) ==");
+	const docCov = Bun.spawnSync(["bun", "scripts/doc-coverage.ts"], {
+		cwd: root,
+		stdout: "inherit",
+		stderr: "inherit",
+		stdin: "ignore",
+	});
+	if (docCov.exitCode !== 0) {
+		console.error("verify-pr: doc-coverage gate failed");
+		await finish(docCov.exitCode ?? 1, startedAt);
+	}
+
 	if (hasBuildStep("docs")) {
 		console.log("== Generated docs ==");
 		const docs = zig(["build", "docs", "--summary", "failures"]);
