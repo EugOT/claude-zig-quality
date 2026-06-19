@@ -18,9 +18,12 @@ failing check is showing up at the wrong tier.
         v                     v                    v                       v
   fmt + ast-check         + unit tests         + cross-target         + clean rebuild
   banned-API scan         + API surface          safety-mode matrix     + reproducibility
-  (lightweight)             baseline check      + docs build             + deep fuzz (gated)
-                                                + bounded fuzz           + SBOM
-                                                  (if supported)         + cosign (optional)
+  ziglint (PATH,            baseline check      + docs build             + deep fuzz (gated)
+   advisory)              + zig build lint     (lint inherited from      + SBOM
+                            (authoritative)      Tier 2 via              + cosign (optional)
+                                                 verify-commit)
+                                                + bounded fuzz
+                                                  (if supported)
 ```
 
 ## Invocation surface
@@ -38,7 +41,7 @@ failing check is showing up at the wrong tier.
 
 - `zig fmt --check`
 - `zig ast-check`
-- optional `ziglint`
+- optional `ziglint` (advisory PATH probe; absence is not a failure)
 - lightweight banned-API grep (see `../references/0.16-idioms.md`)
 - empty tree is allowed: "no Zig files to check"
 
@@ -46,12 +49,17 @@ failing check is showing up at the wrong tier.
 
 - all of Tier 1
 - `zig build test --summary failures --test-timeout 30s`
+- `zig build lint` — authoritative `ziglint` gate (pinned fork,
+  PATH-independent); guarded by `hasBuildStep("lint")` for adopter
+  opt-out
 - API surface check against `.zig-qm/public-api.txt` if `src/lib.zig`
   exists
 
 ### Tier 3 — per-PR
 
-- all of Tier 2
+- all of Tier 2 (including the `zig build lint` gate, which runs once in
+  the commit tier and is inherited here — `verify-pr` invokes
+  `verify-commit` first; lint is not re-run at Tier 3)
 - cross-target build matrix: `x86_64-linux-musl`,
   `aarch64-linux-gnu`, `aarch64-macos`, `x86_64-windows-msvc`,
   `wasm32-wasi`

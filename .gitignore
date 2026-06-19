@@ -23,6 +23,7 @@ fuzz/out/
 # Editor
 .idea/
 .vscode/
+.cmux/
 
 # Build report (scratch only)
 *.log

@@ -36,8 +36,13 @@ pub const HelloError = error{
 ///     because it lets us swap to a tracing Io in tests (rule 3)
 ///   - named error set (rule 1)
 ///   - tested via std.testing.allocator below (rule 4)
+// ziglint-ignore: Z015 — `HelloError` is a documented `pub const` error set,
+// exactly as TIGER_STYLE_ZIG §1.2 mandates; ziglint isPrivateTypeRef
+// false-positives on a file-level `pub const` error set referenced by a
+// same-file `pub fn`. Z015 stays active elsewhere to catch real leaks.
 pub fn hello(gpa: Allocator, io: Io, name: []const u8) HelloError![]u8 {
     _ = io; // Io is reserved for future use (tracing, clock, rand).
+    // ziglint-ignore: Z010 — qualified form required in error-union return.
     if (name.len == 0) return HelloError.EmptyName;
     return std.fmt.allocPrint(gpa, "Hello, {s}!", .{name});
 }

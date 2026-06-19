@@ -310,6 +310,8 @@ silent on questions where reasonable projects differ:
 |-----------------------------------------|-----------------------------------|-------------|
 | `zig fmt --check`                       | `scripts/verify-fast.ts`          | Per-turn    |
 | `zig ast-check`                         | `scripts/verify-fast.ts`          | Per-turn    |
+| `ziglint` lint rules (PATH probe)       | `scripts/verify-fast.ts`          | Per-turn    |
+| `ziglint` lint rules (`zig build lint`) | `scripts/verify-commit.ts`        | Per-commit  |
 | No `anyerror` in `pub`                  | `scripts/zig-fitness.zig`         | Per-commit  |
 | Named error sets                        | `scripts/zig-fitness.zig`         | Per-commit  |
 | Allocator propagation                   | `scripts/zig-fitness.zig`         | Per-commit  |
@@ -324,6 +326,41 @@ silent on questions where reasonable projects differ:
 When a rule fails, the verifier reports the specific fitness rule id,
 the file and line, and the canonical fix. The `zig-fixer` subagent
 knows the deterministic fix for every rule in the table above.
+
+### 12.1 The `ziglint` gate
+
+`ziglint` (the pinned `EugOT/ziglint` fork) runs in two positions:
+
+- **Per-turn (advisory):** `verify-fast.ts` invokes a PATH `ziglint` if
+  one is present, keeping the inner loop sub-second. Absence is not a
+  failure — the per-turn probe is best-effort.
+- **Per-commit (authoritative):** `verify-commit.ts` runs `zig build
+  lint`, which compiles the pinned fork (`ReleaseFast`) and lints `src/`,
+  `scripts/`, and `build.zig`. This is PATH-independent: the linter
+  version is fixed by `build.zig.zon`, not by whatever happens to be on
+  `PATH`. `ziglint.addLint` enforces exit 0, so any finding fails the
+  gate. The call is guarded by `hasBuildStep("lint")`, so an adopter who
+  drops the `.ziglint` dependency (and the `lint` step) is not broken.
+- **Per-PR (inherited):** `verify-pr.ts` runs `verify-commit.ts` as its
+  first step, so the lint gate executes once, in the commit tier, and the
+  PR tier inherits its verdict — it is not invoked a second time. Tier 3
+  adds only the PR-specific checks (cross-target, safety modes, fuzz).
+
+**Suppression convention.** A finding is suppressed only with an inline
+`// ziglint-ignore: <rule> — <rationale>` comment that names the rule and
+a one-line reason. Two suppressions ship in the template's own sources as
+documented linter false-positives, not masked issues:
+
+- `Z010` — ziglint suggests the bare `.Variant` enum-literal form for an
+  error return, but `return .Variant` does **not** compile in an
+  error-union return position (`error: type 'void' has no members`); the
+  qualified `ErrorSet.Variant` form is required (§1.2).
+- `Z015` — ziglint's `isPrivateTypeRef` false-positives on a file-level
+  `pub const` error set referenced by a same-file `pub fn`, even though
+  the set is the documented public surface §1.2 mandates.
+
+Suppressions are reviewed like any other diff: a blanket ignore without a
+specific rule and rationale is a review-blocking finding.
 
 ## 13. Reading order for new contributors
 

@@ -39,7 +39,12 @@ pub const ParseError = error{
 /// Allocator discipline: we run the tokenizing work under a private arena so
 /// the hot path does not fragment the caller's allocator. Only the two owned
 /// slices in `ParsedGreeting` are allocated in the caller's allocator.
+// ziglint-ignore: Z015 — `ParseError` is a documented `pub const` error set,
+// exactly as TIGER_STYLE_ZIG §1.2 mandates; ziglint isPrivateTypeRef
+// false-positives on a file-level `pub const` error set referenced by a
+// same-file `pub fn`. Z015 stays active elsewhere to catch real leaks.
 pub fn parseGreeting(gpa: Allocator, input: []const u8) ParseError!ParsedGreeting {
+    // ziglint-ignore: Z010 — qualified form required in error-union return.
     if (input.len == 0) return ParseError.Empty;
 
     // Private arena for scratch work. This arena is fully contained within
@@ -48,13 +53,16 @@ pub fn parseGreeting(gpa: Allocator, input: []const u8) ParseError!ParsedGreetin
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
+    // ziglint-ignore: Z010 — qualified form required in error-union return.
     const comma = std.mem.indexOfScalar(u8, input, ',') orelse return ParseError.MalformedGreeting;
+    // ziglint-ignore: Z010 — qualified form required in error-union return.
     if (!std.mem.endsWith(u8, input, "!")) return ParseError.MalformedGreeting;
 
     // Scratch copies live in the arena — freed automatically.
     const prefix_scratch = try arena.dupe(u8, std.mem.trim(u8, input[0..comma], " "));
     const name_scratch = try arena.dupe(u8, std.mem.trim(u8, input[comma + 1 .. input.len - 1], " "));
 
+    // ziglint-ignore: Z010 — qualified form required in error-union return.
     if (prefix_scratch.len == 0 or name_scratch.len == 0) return ParseError.MalformedGreeting;
 
     // Final copies live in the caller's allocator.

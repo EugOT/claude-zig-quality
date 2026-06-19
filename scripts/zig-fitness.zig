@@ -117,7 +117,7 @@ fn scanFile(
             // `error.FileTooBig` from the 1 MiB cap, which would
             // otherwise let a 2 MiB Zig source bypass every check.
             try printErrFmt(io, "cannot read {s}: {s}\n", .{ path, @errorName(err) });
-            try emitFmt(w, gpa, .{
+            try emitFmt(gpa, w, .{
                 .file = path,
                 .kind = "read-error",
                 .line = 1,
@@ -151,7 +151,7 @@ fn scanFile(
                 const main_tok = main_tokens[@intFromEnum(decl_idx)];
                 if (token_tags[main_tok] == .keyword_var and !allow_top_var) {
                     const line = lineOf(source, spanStart(ast, decl_idx));
-                    try emit(w, gpa, .{
+                    try emit(gpa, w, .{
                         .file = path,
                         .kind = "top-level-var",
                         .line = line,
@@ -168,10 +168,14 @@ fn scanFile(
                 const name = ast.tokenSlice(name_tok);
                 const line = lineOf(source, span.start);
 
-                const allocates = containsAny(body, &.{ ".alloc(", ".create(", ".destroy(", ".free(", "allocPrint(", ".dupe(" });
+                const allocates = containsAny(body, &.{
+                    ".alloc(",     ".create(",
+                    ".destroy(",   ".free(",
+                    "allocPrint(", ".dupe(",
+                });
                 const has_alloc_param = containsAny(body, &.{ "std.mem.Allocator", ": Allocator", ":Allocator" });
                 if (allocates and !has_alloc_param) {
-                    try emitFmt(w, gpa, .{
+                    try emitFmt(gpa, w, .{
                         .file = path,
                         .kind = "alloc-propagation",
                         .line = line,
@@ -190,7 +194,7 @@ fn scanFile(
                 });
                 const has_io_param = containsAny(body, &.{ ": std.Io", ":std.Io", ": Io", ":Io" });
                 if (touches_io and !has_io_param) {
-                    try emitFmt(w, gpa, .{
+                    try emitFmt(gpa, w, .{
                         .file = path,
                         .kind = "io-injection",
                         .line = line,
@@ -203,7 +207,7 @@ fn scanFile(
                 // Inferred error set detection: look for `!` in the return
                 // position without a preceding named-set identifier.
                 if (hasInferredErrorSet(body)) {
-                    try emitFmt(w, gpa, .{
+                    try emitFmt(gpa, w, .{
                         .file = path,
                         .kind = "inferred-error-set",
                         .line = line,
@@ -221,7 +225,7 @@ fn scanFile(
 
 fn isPubFn(token_tags: []const std.zig.Token.Tag, fn_tok: std.zig.Ast.TokenIndex) bool {
     if (fn_tok == 0) return false;
-    var i: usize = @as(usize, fn_tok);
+    var i: usize = fn_tok;
     while (i > 0) {
         i -= 1;
         switch (token_tags[i]) {
@@ -236,7 +240,7 @@ fn isPubFn(token_tags: []const std.zig.Token.Tag, fn_tok: std.zig.Ast.TokenIndex
 fn findFnNameToken(ast: std.zig.Ast, decl_idx: std.zig.Ast.Node.Index) ?std.zig.Ast.TokenIndex {
     const main_tok = ast.nodes.items(.main_token)[@intFromEnum(decl_idx)];
     const token_tags = ast.tokens.items(.tag);
-    var i: usize = @as(usize, main_tok);
+    var i: usize = main_tok;
     const end = @min(i + 4, token_tags.len);
     while (i < end) : (i += 1) {
         if (token_tags[i] == .identifier) return @intCast(i);
@@ -309,7 +313,7 @@ const EmitArgs = struct {
 /// (`file`, `kind`, `message`) is JSON-escaped before interpolation so a
 /// filename that contains `"` or `\n` cannot corrupt the NDJSON stream
 /// consumed downstream by `zig-fitness-report.ts`.
-fn emit(w: *std.Io.Writer, gpa: std.mem.Allocator, args: EmitArgs) !void {
+fn emit(gpa: std.mem.Allocator, w: *std.Io.Writer, args: EmitArgs) !void {
     const file_esc = try escapeJsonString(gpa, args.file);
     defer gpa.free(file_esc);
     const kind_esc = try escapeJsonString(gpa, args.kind);
@@ -333,7 +337,7 @@ const EmitFmtArgs = struct {
 /// Emit one NDJSON violation record built from a `{s}`-style template.
 /// `file`, `kind`, and the rendered message all flow through
 /// `escapeJsonString` before they reach the wire.
-fn emitFmt(w: *std.Io.Writer, gpa: std.mem.Allocator, args: EmitFmtArgs) !void {
+fn emitFmt(gpa: std.mem.Allocator, w: *std.Io.Writer, args: EmitFmtArgs) !void {
     const msg = try std.fmt.allocPrint(gpa, "{s}", .{args.message_fmt});
     defer gpa.free(msg);
     // Replace {s} with the arg (very small-scope formatter).
@@ -447,7 +451,7 @@ test "emit JSON-escapes filenames so quotes and newlines cannot break NDJSON" {
     var out_buf: [1024]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out_buf);
 
-    try emit(&w, gpa, .{
+    try emit(gpa, &w, .{
         .file = evil_file,
         .kind = evil_kind,
         .line = 7,
@@ -474,7 +478,7 @@ test "emitFmt JSON-escapes file and kind too" {
     var out_buf: [1024]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out_buf);
 
-    try emitFmt(&w, gpa, .{
+    try emitFmt(gpa, &w, .{
         .file = "weird\"file.zig",
         .kind = "weird\\kind",
         .line = 3,

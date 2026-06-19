@@ -150,6 +150,40 @@ Use `github.com/EugOT/ziglint` as the authoritative linter fork (Zig 0.16).
 Do not substitute `mattware`/`nektro` forks. It is one gate beside `zig
 fmt`, `zig ast-check`, tests, fuzzing, and architecture fitness checks.
 
+**Pinning.** The fork is pinned in `build.zig.zon` by *both* a commit SHA
+(`?ref=main#<sha>`) and a content `hash`. Reproducibility comes from the
+`hash` — Zig verifies the fetched tree against it regardless of the
+`ref`, so the build is bit-identical even if the fork carries no release
+tag. The `ref=main#<sha>` is a fetch hint, not the integrity anchor; a
+force-push to the fork's `main` cannot substitute different code past the
+hash check (it can only make the ref unfetchable, which fails loudly).
+Bump the pin by updating both the SHA and the hash together — never one
+alone.
+
+Wire it as a pinned `build.zig.zon` dependency and expose a `lint` step:
+
+```zig
+const ziglint = @import("ziglint");
+// ...
+const lint_step = b.step("lint", "Run ziglint over sources and build files");
+const ziglint_dep = b.dependency("ziglint", .{ .optimize = .ReleaseFast });
+lint_step.dependOn(ziglint.addLint(
+    b,
+    ziglint_dep,
+    &.{ b.path("src"), b.path("scripts"), b.path("build.zig") },
+));
+```
+
+`ziglint.addLint` enforces exit 0, so any finding fails `zig build lint`.
+The per-commit and per-PR gates invoke `zig build lint` (PATH-independent,
+version pinned by `build.zig.zon`); the per-turn gate uses an advisory
+PATH probe. Keep the `lint` step **out** of `test_step` so the inner loop
+stays fast. Suppress a finding only with an inline
+`// ziglint-ignore: <rule> — <rationale>` comment naming the rule and
+reason. Adopters who do not want the gate drop the `@import`, the `lint`
+step, and the `.ziglint` dependency; the gate tiers guard on
+`hasBuildStep("lint")` so this is a clean opt-out.
+
 ## Anti-patterns
 
 - `@cImport` in `src/*.zig` (use `b.addTranslateC`).
