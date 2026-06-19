@@ -17,11 +17,11 @@ failing check is showing up at the wrong tier.
         | edits               | commit             | PR                    | tag
         v                     v                    v                       v
   fmt + ast-check         + unit tests         + cross-target         + clean rebuild
-  banned-API scan         + API surface          safety-mode matrix     + reproducibility
-  ziglint (PATH,            baseline check      + docs build             + deep fuzz (gated)
-   advisory)              + zig build lint     (lint inherited from      + SBOM
-                            (authoritative)      Tier 2 via              + cosign (optional)
-                                                 verify-commit)
+  (syntax, unused,        + API surface          safety-mode matrix     + reproducibility
+   shadowing)               baseline check     + ZLS semantic diag       + deep fuzz (gated)
+  banned-API scan         + zig build lint     + doc coverage (§10)      + SBOM
+  ziglint (PATH,            (authoritative)     + docs build             + cosign (optional)
+   advisory)              (lint inherited from Tier 2 via verify-commit)
                                                 + bounded fuzz
                                                   (if supported)
 ```
@@ -60,6 +60,9 @@ failing check is showing up at the wrong tier.
 - all of Tier 2 (including the `zig build lint` gate, which runs once in
   the commit tier and is inherited here — `verify-pr` invokes
   `verify-commit` first; lint is not re-run at Tier 3)
+- ZLS semantic diagnostics (`zls-check.ts`): boots pinned `zls@0.16.0`,
+  fails on Error-severity diagnostics; degrades loudly if ZLS absent
+- doc coverage (`zig-doc-coverage.zig`): every `pub` decl has a `///` (§10)
 - cross-target build matrix: `x86_64-linux-musl`,
   `aarch64-linux-gnu`, `aarch64-macos`, `x86_64-windows-msvc`,
   `wasm32-wasi`

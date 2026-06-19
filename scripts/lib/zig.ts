@@ -74,6 +74,80 @@ export function zigVersion(): string {
 	return (r.stdout || "").trim();
 }
 
+const ZLS_TARGET_VERSION = "0.16.0";
+
+/**
+ * The argv that launches ZLS pinned to the target version, mirroring the
+ * `zig()` resolution policy:
+ *   - $ZLS override wins (operator escape hatch / CI)
+ *   - else `mise x zls@0.16.0 -- zls ...` when mise is available (pinned)
+ *   - else null — bare-PATH zls is NOT trusted for an authoritative gate
+ *     (§0.7), and the caller degrades explicitly instead of guessing.
+ *
+ * Returning null (rather than a bare `zls`) is deliberate: the ZLS gate is
+ * advisory-additive over `zig ast-check`, so "no pinned ZLS" must degrade
+ * loudly to the ast-check baseline, never silently run an arbitrary host
+ * ZLS whose version may not match the pinned Zig.
+ */
+export function zlsLaunchArgv(extraArgs: string[] = []): string[] | null {
+	const envZls = process.env.ZLS;
+	if (envZls && envZls.length > 0) return [envZls, ...extraArgs];
+	if (Bun.which("mise") !== null) {
+		return [
+			"mise",
+			"x",
+			`zls@${ZLS_TARGET_VERSION}`,
+			"--",
+			"zls",
+			...extraArgs,
+		];
+	}
+	return null;
+}
+
+/** True when a pinned ZLS ($ZLS or mise zls@0.16.0) can be launched. */
+export function zlsIsAvailable(): boolean {
+	return zlsLaunchArgv() !== null;
+}
+
+/**
+ * Absolute path to the pinned Zig executable, for handing to ZLS as
+ * `zig_exe_path` so its build-on-save tier resolves the SAME toolchain the
+ * rest of the gate uses (never a stray host `zig`). Returns null when only
+ * the bare-PATH fallback is available — the caller then runs ZLS in the
+ * zero-config ast-check tier rather than wiring an unpinned zig.
+ */
+export function zigExePath(): string | null {
+	switch (zigResolution()) {
+		case "env":
+			return process.env.ZIG as string;
+		case "mise": {
+			const root = repoRoot();
+			const trusted = [process.env.MISE_TRUSTED_CONFIG_PATHS, root]
+				.filter((s): s is string => !!s && s.length > 0)
+				.join(":");
+			const r = spawnSync(
+				["mise", "which", "--tool", `zig@${TARGET_VERSION}`, "zig"],
+				{ env: { MISE_TRUSTED_CONFIG_PATHS: trusted } },
+			);
+			const p = (r.stdout || "").trim();
+			return r.code === 0 && p.length > 0 ? p : null;
+		}
+		default:
+			return null;
+	}
+}
+
+export function zlsMessage(): string {
+	return (
+		"(ZLS semantic gate skipped: no pinned ZLS resolvable via $ZLS or " +
+		`\`mise x zls@${ZLS_TARGET_VERSION}\`. Install it (\`mise install zls@` +
+		`${ZLS_TARGET_VERSION}\`) for the extra per-file semantic layer; ` +
+		"`zig ast-check` (per-turn) and `zig build test` (per-PR) still cover " +
+		"syntax, unused/shadow, and full compile errors.)"
+	);
+}
+
 /**
  * True when `zig build -l` exposes a step named `step`. Used by the gate
  * tiers to treat optional steps (lint, docs, fuzz) as present-or-absent

@@ -49,12 +49,23 @@ test("hasBuildStep rejects step names with regex metacharacters", () => {
 	}
 });
 
-test("hasBuildStep accepts plain build-step identifiers", () => {
-	// With $ZIG set to a bogus-but-present resolution, the name guard runs
-	// before any spawn; we only assert the *name* is accepted (the call may
-	// then fail on the spawn, which is a different branch).
+test("hasBuildStep accepts plain build-step identifiers (no name rejection)", () => {
+	// Force the pinned "env" strategy with a bogus $ZIG so zigIsPinned() is
+	// true and the name guard runs, but the subsequent `zig build -l` spawn
+	// fails fast. We assert the function does NOT reject the name — the only
+	// error it may raise here is the downstream spawn/exec failure, never
+	// `invalid step name`. This exercises the actual hasBuildStep code path
+	// (not just the regex literal), closing the tautology a pure regex
+	// assertion would leave (CodeRabbit finding).
+	process.env.ZIG = "/nonexistent/pinned/zig";
 	for (const ok of ["lint", "docs", "fuzz", "test-unit", "step_2"]) {
-		expect(/^[A-Za-z0-9_-]{1,64}$/.test(ok)).toBe(true);
+		let rejectedName = false;
+		try {
+			hasBuildStep(ok);
+		} catch (e) {
+			if (/invalid step name/.test((e as Error).message)) rejectedName = true;
+		}
+		expect(rejectedName).toBe(false);
 	}
 });
 

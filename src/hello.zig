@@ -10,6 +10,8 @@
 
 const std = @import("std");
 
+/// Re-export of `std.mem.Allocator`; `parseGreeting` takes one explicitly
+/// so the caller owns allocation lifetime (§1.1).
 pub const Allocator = std.mem.Allocator;
 
 /// Owned output of `parseGreeting`. Caller must call `deinit` with the same

@@ -7,7 +7,11 @@
 
 const std = @import("std");
 
+/// Public library surface — the module consumers import as
+/// `@import("claude_zig_quality")`. See `src/lib.zig`.
 pub const lib = @import("lib.zig");
+/// Alternate allocator-discipline surface kept in its own file to show
+/// allocator state is module-local, not global. See `src/hello.zig`.
 pub const hello_module = @import("hello.zig");
 
 pub fn main(init: std.process.Init) !u8 {

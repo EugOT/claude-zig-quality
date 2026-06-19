@@ -309,7 +309,8 @@ silent on questions where reasonable projects differ:
 | Rule                                    | Enforcer                          | Tier        |
 |-----------------------------------------|-----------------------------------|-------------|
 | `zig fmt --check`                       | `scripts/verify-fast.ts`          | Per-turn    |
-| `zig ast-check`                         | `scripts/verify-fast.ts`          | Per-turn    |
+| `zig ast-check` (syntax)                | `scripts/verify-fast.ts`          | Per-turn    |
+| Unused locals / params / shadowing      | `zig ast-check` (compiler)        | Per-turn    |
 | `ziglint` lint rules (PATH probe)       | `scripts/verify-fast.ts`          | Per-turn    |
 | `ziglint` lint rules (`zig build lint`) | `scripts/verify-commit.ts`        | Per-commit  |
 | No `anyerror` in `pub`                  | `scripts/zig-fitness.zig`         | Per-commit  |
@@ -319,6 +320,8 @@ silent on questions where reasonable projects differ:
 | Assertion density threshold             | `scripts/zig-fitness.zig`         | Per-PR      |
 | `std.testing.allocator` usage           | `scripts/zig-fitness.zig`         | Per-PR      |
 | Public-API baseline                     | `scripts/check-public-api.ts`     | Per-PR      |
+| ZLS semantic diagnostics                | `scripts/zls-check.ts`            | Per-PR      |
+| Doc comment on every `pub` (§10)        | `scripts/zig-doc-coverage.zig`    | Per-PR      |
 | Fuzz corpus coverage                    | `scripts/verify-pr.ts`            | Per-PR      |
 | Reproducible release build              | `scripts/verify-release.ts`       | Per-release |
 | SBOM generation                         | `scripts/emit-sbom.zig`           | Per-release |
@@ -361,6 +364,43 @@ documented linter false-positives, not masked issues:
 
 Suppressions are reviewed like any other diff: a blanket ignore without a
 specific rule and rationale is a review-blocking finding.
+
+### 12.2 The ZLS semantic gate, doc-coverage, and what the compiler owns
+
+**Unused / shadowing are the compiler's job, not the fitness engine's.**
+`zig ast-check` (per-turn, and in both Edit hooks) already hard-errors on
+unused locals, unused function parameters, identifier shadowing (outer,
+nested, and parameter), pointless `_ = x` discards, and never-mutated
+`var`. These are *not* re-implemented in `scripts/zig-fitness.zig`: a
+grep/AST approximation would be redundant and strictly weaker (no scope
+stack, false positives on discards). `ast-check` needs no type or import
+resolution, so it is also the resilient fallback when ZLS or a full build
+cannot resolve the module graph. The fitness engine stays focused on the
+*cultural* rules the compiler is silent on (allocator/`Io` injection,
+error-set naming, inferred `pub` error sets).
+
+**ZLS semantic gate (`scripts/zls-check.ts`, Per-PR).** ZLS is an LSP
+server, not a batch linter, so the gate speaks LSP over stdio: it boots
+the pinned `zls@0.16.0`, opens every `src/**/*.zig`, and fails on any
+Error-severity diagnostic ZLS *pushes* back (`publishDiagnostics`; ZLS
+0.16's pull-diagnostics endpoint is a no-op). When a pinned `zig` is
+resolvable it is handed to ZLS as `zig_exe_path` so build-on-save surfaces
+cross-module compile errors too. Resilience contract:
+
+- No pinned ZLS (`$ZLS` unset and no `mise x zls@0.16.0`) → the gate
+  degrades **loudly** to a skip notice and passes; `ast-check` and `zig
+  build test` still cover syntax, unused/shadow, and full compile errors.
+- ZLS unreachable, or a file never reports within the budget → **failure**
+  (a missing diagnostic is never treated as a pass; the gate must not go
+  silently green on a dead server). ZLS's exit code is ignored — it exits
+  1 even on a clean shutdown — so success is keyed on collected
+  diagnostics, never on the child's exit status.
+
+**Doc-coverage (`scripts/zig-doc-coverage.zig`, Per-PR).** Enforces §10:
+every top-level `pub` declaration carries a `///` doc comment. A decl is
+documented iff a `.doc_comment` token sits immediately before its first
+token (the `pub` keyword). `pub fn main` is exempt — like §1.2, the
+entrypoint's contract is the runtime's, not the project's.
 
 ## 13. Reading order for new contributors
 

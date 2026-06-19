@@ -100,6 +100,30 @@ pub fn build(b: *std.Build) void {
     const integration_step = b.step("test-integration", "Run integration/e2e tests");
     integration_step.dependOn(&run_integration.step);
 
+    // -------------------------------------------------------- script-tool tests
+    // The standalone AST tools under scripts/ carry their own unit tests
+    // (zig-doc-coverage, zig-fitness, emit-sbom). They are not part of the
+    // library module graph, so without an explicit step their tests never run
+    // in CI. `test-scripts` compiles each as a test binary; it is folded into
+    // the umbrella `test` step so `zig build test` covers them too.
+    const script_tools: []const []const u8 = &.{
+        "scripts/zig-doc-coverage.zig",
+        "scripts/zig-fitness.zig",
+        "scripts/emit-sbom.zig",
+    };
+    const scripts_step = b.step("test-scripts", "Run scripts/*.zig tool unit tests");
+    for (script_tools) |tool_path| {
+        const tool_mod = b.createModule(.{
+            .root_source_file = b.path(tool_path),
+            .target = target,
+            .optimize = optimize,
+        });
+        const tool_test = b.addTest(.{ .root_module = tool_mod });
+        const run_tool_test = b.addRunArtifact(tool_test);
+        scripts_step.dependOn(&run_tool_test.step);
+        test_step.dependOn(&run_tool_test.step);
+    }
+
     // ----------------------------------------------------------------- fuzz
     // Fuzzing in Zig 0.16 is driven by the build runner's `--fuzz` flag.
     // This step prepares the full test graph so the runner can discover
