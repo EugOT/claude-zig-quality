@@ -220,6 +220,27 @@ export async function collectZlsDiagnostics(
 		}
 	})();
 
+	// Drain stderr in the background too. ZLS can emit multi-KB to stderr
+	// (window/logMessage, crash traces) even with --log-level err; an
+	// undrained stderr pipe fills its buffer, blocks ZLS on write, and would
+	// trip the hard timeout instead of completing cleanly (CodeRabbit). We
+	// keep a capped tail for the session-error log without unbounded growth.
+	let stderrTail = "";
+	const stderrLoop = (async () => {
+		try {
+			const er = proc.stderr.getReader();
+			for (;;) {
+				const { value, done } = await er.read();
+				if (done) break;
+				if (value) {
+					stderrTail = (stderrTail + decoder.decode(value)).slice(-4096);
+				}
+			}
+		} catch {
+			// child gone / pipe closed — expected on kill.
+		}
+	})();
+
 	let timedOut = false;
 	const hardKill = setTimeout(() => {
 		timedOut = true;
@@ -285,6 +306,9 @@ export async function collectZlsDiagnostics(
 		// not exceptions — but we log here so the operator sees the actual
 		// cause rather than a bare "file did not report".
 		console.error("[zls] session error:", err);
+		if (stderrTail.trim().length > 0) {
+			console.error("[zls] stderr tail:\n" + stderrTail.trimEnd());
+		}
 	} finally {
 		clearTimeout(hardKill);
 		try {
@@ -293,10 +317,11 @@ export async function collectZlsDiagnostics(
 			// already gone
 		}
 		// ZLS exits code 1 even on a clean handshake — we never inspect the
-		// exit code. Just make sure the process and reader are reaped.
+		// exit code. Just make sure the process and both readers are reaped.
 		await proc.exited.catch(() => {});
 		await until(() => readerDone, 1_000);
 		await readLoop.catch(() => {});
+		await stderrLoop.catch(() => {});
 	}
 
 	// Re-key diagnostics from file:// URI back to the caller's file paths.

@@ -45,10 +45,21 @@ export function zigIsPinned(): boolean {
 	return zigResolution() !== "bare-path";
 }
 
-export function zig(args: string[]): SpawnResult {
+export function zig(
+	args: string[],
+	extraEnv?: Record<string, string>,
+): SpawnResult {
+	// `extraEnv` is merged into the child environment across every resolution
+	// branch. The per-release tier uses it to thread SOURCE_DATE_EPOCH so two
+	// clean rebuilds embed identical timestamps (reproducibility, §release).
+	const env =
+		extraEnv && Object.keys(extraEnv).length > 0 ? extraEnv : undefined;
 	switch (zigResolution()) {
 		case "env":
-			return spawnSync([process.env.ZIG as string, ...args]);
+			return spawnSync(
+				[process.env.ZIG as string, ...args],
+				env ? { env } : {},
+			);
 		case "mise": {
 			const root = repoRoot();
 			const trusted = [process.env.MISE_TRUSTED_CONFIG_PATHS, root]
@@ -57,7 +68,7 @@ export function zig(args: string[]): SpawnResult {
 			return spawnSync(
 				["mise", "x", `zig@${TARGET_VERSION}`, "--", "zig", ...args],
 				{
-					env: { MISE_TRUSTED_CONFIG_PATHS: trusted },
+					env: { MISE_TRUSTED_CONFIG_PATHS: trusted, ...env },
 				},
 			);
 		}
@@ -65,7 +76,7 @@ export function zig(args: string[]): SpawnResult {
 			console.error(
 				"WARN: falling back to bare-PATH zig because neither $ZIG nor mise was available",
 			);
-			return spawnSync(["zig", ...args]);
+			return spawnSync(["zig", ...args], env ? { env } : {});
 	}
 }
 

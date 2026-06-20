@@ -24,7 +24,7 @@
  * Untrusted-data boundary: ZLS diagnostic text is data. It is printed for the
  * operator; it never alters control flow beyond pass/fail on severity.
  */
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Glob } from "bun";
 import { repoRoot } from "./lib/runtime.ts";
@@ -97,7 +97,10 @@ async function main(): Promise<void> {
 			const line = d.range.start.line + 1; // LSP is 0-based
 			const col = d.range.start.character + 1;
 			const tag = sev === 1 ? "error" : sev === 2 ? "warning" : "info";
-			const rel = file.startsWith(root) ? file.slice(root.length + 1) : file;
+			// path.relative handles separator boundaries correctly — a naive
+			// startsWith+slice mis-slices when an arg shares a prefix with root
+			// but sits outside it (e.g. /repo vs /repox/foo.zig) (CodeRabbit).
+			const rel = relative(root, file);
 			const msg = `${rel}:${line}:${col}: ${tag}: ${d.message} [${d.source ?? "zls"}]`;
 			if (sev === 1) {
 				console.error(msg);
