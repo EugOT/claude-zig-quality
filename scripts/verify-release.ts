@@ -9,9 +9,13 @@
  *      `fuzz` step exists and the platform supports it. Budget-elapsed is
  *      treated as a pass ("fuzz budget elapsed; no crashes").
  *   4. SBOM via `zig run scripts/emit-sbom.zig`, falling back to `syft` if
- *      on PATH; otherwise a loud skip message pointing at the ADR.
- *   5. cosign signing — only when cosign is present AND COSIGN_ENABLED=1
- *      AND a CI environment is detected (CI=true). Otherwise logs a skip
+ *      on PATH; otherwise a loud skip. The generated SBOM is then VALIDATED
+ *      (CycloneDX shape + declared-dependency coverage) and the gate fails on
+ *      a malformed/incomplete document (Phase 4).
+ *   5. cosign signing — opt-in via COSIGN_ENABLED=1 in CI. When requested,
+ *      the signing environment is pre-flight-validated and the gate FAILS
+ *      (never silently skips) if it is incomplete (Phase 2); each signed
+ *      artifact is then verify-blob'd (Phase 3). Not requested → clean skip
  *      referencing doc/adr/0001 §0.12.
  *
  * Exit codes:
@@ -95,6 +99,212 @@ export function sourceDateEpoch(root: string): string {
  * Exported so unit tests can exercise the framing on a synthetic tmpdir
  * without spinning up a real `zig build`.
  */
+/** Outcome of {@link validateSbom}. */
+export type SbomValidation = {
+	ok: boolean;
+	errors: string[];
+	specVersion: string;
+	componentCount: number;
+};
+
+/**
+ * Validate a CycloneDX SBOM document (Phase 4). This is intentionally a
+ * structural check, not a full JSON-Schema validation: it confirms the
+ * document is the thing it claims to be and actually covers the project's
+ * declared dependencies, which is what makes shipping it meaningful.
+ *
+ * Checks:
+ *   - parses as JSON and is an object;
+ *   - `bomFormat` == "CycloneDX" and a non-empty `specVersion`;
+ *   - `components` is an array (a dependency-bearing project must list them);
+ *   - every name in `declaredDeps` appears as a component `name` (so the SBOM
+ *     is not silently missing a declared dependency).
+ *
+ * Returns all failures at once so the gate can report them together.
+ */
+export function validateSbom(
+	raw: string,
+	declaredDeps: string[] = [],
+): SbomValidation {
+	const errors: string[] = [];
+	let doc: unknown;
+	try {
+		doc = JSON.parse(raw);
+	} catch (e) {
+		return {
+			ok: false,
+			errors: [`not valid JSON: ${(e as Error).message}`],
+			specVersion: "",
+			componentCount: 0,
+		};
+	}
+	if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
+		return {
+			ok: false,
+			errors: ["SBOM root is not a JSON object"],
+			specVersion: "",
+			componentCount: 0,
+		};
+	}
+	const obj = doc as Record<string, unknown>;
+	if (obj.bomFormat !== "CycloneDX") {
+		errors.push(
+			`bomFormat is ${JSON.stringify(obj.bomFormat)}, expected "CycloneDX"`,
+		);
+	}
+	const specVersion =
+		typeof obj.specVersion === "string" ? obj.specVersion : "";
+	if (specVersion === "") errors.push("missing/empty specVersion");
+
+	const components = Array.isArray(obj.components)
+		? (obj.components as Array<Record<string, unknown>>)
+		: null;
+	if (components === null) {
+		errors.push("components is not an array");
+	}
+	const componentNames = new Set(
+		(components ?? [])
+			.map((c) => (typeof c?.name === "string" ? c.name : null))
+			.filter((n): n is string => n !== null),
+	);
+	for (const dep of declaredDeps) {
+		if (!componentNames.has(dep)) {
+			errors.push(
+				`declared dependency "${dep}" is not present as an SBOM component`,
+			);
+		}
+	}
+
+	return {
+		ok: errors.length === 0,
+		errors,
+		specVersion,
+		componentCount: components?.length ?? 0,
+	};
+}
+
+/**
+ * Names of the dependencies declared in `build.zig.zon`'s `.dependencies`
+ * block, used to cross-check SBOM completeness. Best-effort: parses the
+ * `.dependencies = .{ .name = .{ ... } }` keys with a tolerant regex (the zon
+ * grammar has no JSON parser here). Returns [] when the file or block is
+ * absent — an SBOM for a dependency-free project then needs no coverage check.
+ */
+export async function declaredDepNames(root: string): Promise<string[]> {
+	const zonPath = resolve(root, "build.zig.zon");
+	const file = Bun.file(zonPath);
+	if (!(await file.exists())) return [];
+	const text = await file.text();
+	const depsMatch = text.match(/\.dependencies\s*=\s*\.\{/);
+	if (!depsMatch) return [];
+	// Walk the `.dependencies` block char-by-char tracking brace depth, and
+	// record a `.name = .{` key ONLY when it sits at the block's TOP level
+	// (depth 1 — i.e. a direct child of `.dependencies`). A flat regex over the
+	// whole block is depth-blind: it would also capture nested keys such as a
+	// dependency's own `.foo = .{ ... }` fields, injecting non-dependency names
+	// into the SBOM coverage check and false-failing the gate (CodeRabbit).
+	const start = depsMatch.index ?? 0;
+	const blockStart = text.indexOf("{", start);
+	// Sticky matcher for `.name = .{` (bare or quoted `.@"name"`), tried only
+	// at a candidate `.` that begins at the current scan position.
+	const keyRe = /\.(?:@"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))\s*=\s*\.\{/y;
+	const names = new Set<string>();
+	let depth = 0;
+	for (let i = blockStart; i < text.length; i++) {
+		const ch = text[i];
+		if (ch === "}") {
+			depth--;
+			if (depth === 0) break; // end of the .dependencies block
+			continue;
+		}
+		// Only attempt key capture at the block's top level (just inside the
+		// outer brace). A match advances `depth` via the `.{` it consumed.
+		if (depth === 1 && ch === ".") {
+			keyRe.lastIndex = i;
+			const m = keyRe.exec(text);
+			if (m) {
+				names.add(m[1] ?? m[2]);
+				// The match consumed the dependency's opening `.{`; account for that
+				// nested level and resume scanning right after it.
+				depth++;
+				i = keyRe.lastIndex - 1; // loop's i++ resumes past the consumed `{`
+				continue;
+			}
+		}
+		if (ch === "{") depth++;
+	}
+	return [...names].sort();
+}
+
+/**
+ * Phase 2: pre-flight validation of the signing environment, run only when
+ * signing is requested (COSIGN_ENABLED=1 in CI). Returns an actionable error
+ * string when the environment cannot actually sign, or null when it is usable.
+ * Accepts the resolved tool path (null when the binary is absent) so it stays
+ * pure/testable; credentials are read from the environment.
+ *
+ * Two valid modes:
+ *   - key-based:  COSIGN_KEY (a key ref / file / KMS URI) is set.
+ *   - keyless:    Sigstore OIDC — COSIGN_EXPERIMENTAL=1 (cosign <2) or an
+ *                 ambient CI OIDC token (COSIGN_OIDC_* / ACTIONS_ID_TOKEN_*).
+ * If neither is configured, signing would fail at runtime — so fail the gate
+ * now with guidance instead.
+ */
+export function signingEnvError(
+	toolPath: string | null,
+	env: Record<string, string | undefined> = process.env,
+): string | null {
+	if (toolPath === null) {
+		return "cosign binary not found on PATH (COSIGN_ENABLED=1 but cosign is not installed).";
+	}
+	const hasKey = !!env.COSIGN_KEY && env.COSIGN_KEY.length > 0;
+	const hasKeyless =
+		env.COSIGN_EXPERIMENTAL === "1" ||
+		(!!env.COSIGN_OIDC_ISSUER && env.COSIGN_OIDC_ISSUER.length > 0) ||
+		(!!env.ACTIONS_ID_TOKEN_REQUEST_URL &&
+			env.ACTIONS_ID_TOKEN_REQUEST_URL.length > 0);
+	if (!hasKey && !hasKeyless) {
+		return (
+			"no signing credentials: set COSIGN_KEY for key-based signing, or enable " +
+			"keyless OIDC (COSIGN_EXPERIMENTAL=1 / a CI OIDC token). See doc/adr/0001 §0.12."
+		);
+	}
+	return null;
+}
+
+/**
+ * Phase 3: build the `cosign verify-blob` argv for an artifact + its
+ * signature. Key-based verification uses COSIGN_KEY (or its COSIGN_PUBLIC_KEY
+ * counterpart). Keyless verification requires the certificate identity +
+ * issuer; when those are absent we return null so the caller can skip
+ * verification with a clear notice rather than run an always-failing command.
+ */
+export function signingVerifyArgs(
+	artifact: string,
+	sigPath: string,
+	env: Record<string, string | undefined> = process.env,
+): string[] | null {
+	const pub = env.COSIGN_PUBLIC_KEY || env.COSIGN_KEY;
+	if (pub && pub.length > 0) {
+		return ["verify-blob", "--key", pub, "--signature", sigPath, artifact];
+	}
+	const identity = env.COSIGN_CERTIFICATE_IDENTITY;
+	const issuer = env.COSIGN_CERTIFICATE_OIDC_ISSUER;
+	if (identity && issuer) {
+		return [
+			"verify-blob",
+			"--certificate-identity",
+			identity,
+			"--certificate-oidc-issuer",
+			issuer,
+			"--signature",
+			sigPath,
+			artifact,
+		];
+	}
+	return null;
+}
+
 // Mach-O constants (64-bit, little-endian — the only shape Zig emits for
 // aarch64/x86_64-macos).
 const MH_MAGIC_64 = 0xfeedfacf;
@@ -139,8 +349,7 @@ export function normalizeForRepro(input: Uint8Array): Uint8Array {
 		const cmdsize = bdv.getUint32(off + 4, true);
 		const nextOff = off + cmdsize;
 		if (cmdsize < 8 || nextOff > buf.byteLength) break;
-		if (cmd === LC_UUID)
-			buf.fill(0, off + 8, Math.min(off + 24, nextOff));
+		if (cmd === LC_UUID) buf.fill(0, off + 8, Math.min(off + 24, nextOff));
 		off = nextOff;
 	}
 	// Pass 2: concatenate loadable-segment file ranges (framed by segname+size).
@@ -349,12 +558,15 @@ async function main(): Promise<void> {
 	}
 
 	console.log("== SBOM (CycloneDX) ==");
+	const sbomPath = resolve(root, "sbom.cdx.json");
 	const sbomScript = resolve(root, "scripts/emit-sbom.zig");
+	let sbomWritten = false;
 	if (await Bun.file(sbomScript).exists()) {
 		const sbom = zig(["run", "scripts/emit-sbom.zig", "--", "build.zig.zon"]);
 		if (sbom.code === 0) {
-			await Bun.write(resolve(root, "sbom.cdx.json"), sbom.stdout);
+			await Bun.write(sbomPath, sbom.stdout);
 			console.log("(wrote sbom.cdx.json)");
+			sbomWritten = true;
 		} else {
 			console.error("verify-release: emit-sbom.zig failed");
 			console.error(tail(sbom.stderr));
@@ -365,8 +577,9 @@ async function main(): Promise<void> {
 		if (Bun.which("syft") !== null) {
 			const syft = spawnSync(["syft", "dir:.", "-o", "cyclonedx-json"]);
 			if (syft.code === 0) {
-				await Bun.write(resolve(root, "sbom.cdx.json"), syft.stdout);
+				await Bun.write(sbomPath, syft.stdout);
 				console.log("(wrote sbom.cdx.json via syft fallback)");
+				sbomWritten = true;
 			} else {
 				console.error("verify-release: syft fallback failed");
 				await finish(syft.code ?? 1, startedAt);
@@ -378,44 +591,92 @@ async function main(): Promise<void> {
 		}
 	}
 
-	console.log("== cosign sign artifacts ==");
+	// Phase 4: validate the generated SBOM before it ships. A malformed or
+	// incomplete CycloneDX document is worse than none — downstream consumers
+	// trust it. Check it parses, is CycloneDX, and lists components covering
+	// the dependencies declared in build.zig.zon.
+	if (sbomWritten) {
+		const raw = await Bun.file(sbomPath).text();
+		const declaredDeps = await declaredDepNames(root);
+		const result = validateSbom(raw, declaredDeps);
+		if (!result.ok) {
+			console.error("verify-release: SBOM validation failed");
+			for (const e of result.errors) console.error(`  - ${e}`);
+			await finish(1, startedAt);
+		}
+		console.log(
+			`(SBOM valid: CycloneDX ${result.specVersion}, ${result.componentCount} components` +
+				`${declaredDeps.length > 0 ? `, ${declaredDeps.length} declared deps covered` : ""})`,
+		);
+	}
+
+	console.log("== sign artifacts (cosign) ==");
 	// `command` is a shell builtin; use Bun.which for binary lookups.
-	const hasCosign = Bun.which("cosign") !== null;
-	const cosignEnabled = process.env.COSIGN_ENABLED === "1";
+	const signTool = Bun.which("cosign");
+	const signEnabled = process.env.COSIGN_ENABLED === "1";
 	const inCI = process.env.CI === "true" || process.env.CI === "1";
-	if (hasCosign && cosignEnabled && inCI) {
+
+	if (!signEnabled || !inCI) {
+		// Signing is opt-in (release boundary, §0.12). When NOT requested, skip
+		// cleanly — this is the normal local / non-release path.
+		console.log(
+			"(signing not requested — set COSIGN_ENABLED=1 in CI to sign; see doc/adr/0001 §0.12)",
+		);
+	} else {
+		// Phase 2: signing IS requested. A misconfigured signer must FAIL the
+		// gate, never silently skip — otherwise a release that intends to be
+		// signed could ship unsigned. Validate the environment up front.
+		const envError = signingEnvError(signTool);
+		if (envError !== null) {
+			console.error(
+				"verify-release: signing requested but environment is incomplete",
+			);
+			console.error(`  ${envError}`);
+			await finish(1, startedAt);
+		}
 		const bin = resolve(root, "zig-out", "bin");
 		const artifacts = listArtifacts(bin);
 		if (artifacts.length === 0) {
-			console.log(
-				"(no artifacts under zig-out/bin to sign; skipping cosign step)",
-			);
+			console.log("(no artifacts under zig-out/bin to sign)");
 		} else {
 			for (const artifact of artifacts) {
-				// `--output-signature` lets cosign write the .sig file directly so
-				// we do not have to capture its stdout (which mixes status output
-				// with the signature blob).
+				const sigPath = `${artifact}.sig`;
+				// `--output-signature` writes the .sig directly (its stdout mixes
+				// status with the signature blob).
 				const sig = spawnSync([
 					"cosign",
 					"sign-blob",
 					"--yes",
 					"--output-signature",
-					`${artifact}.sig`,
+					sigPath,
 					artifact,
 				]);
 				if (sig.code !== 0) {
-					console.error(
-						`verify-release: cosign sign-blob failed for ${artifact}`,
-					);
+					console.error(`verify-release: sign-blob failed for ${artifact}`);
+					console.error(tail(sig.stderr));
 					await finish(sig.code ?? 1, startedAt);
 				}
-				console.log(`(signed ${artifact})`);
+				// Phase 3: verify the signature we just produced. A misconfigured
+				// signer can emit an unusable .sig; catch it here, at release time,
+				// not at a downstream consumer. Keyless (OIDC) and key-based modes
+				// need different verify inputs.
+				const verifyArgs = signingVerifyArgs(artifact, sigPath);
+				if (verifyArgs === null) {
+					console.log(
+						`(signed ${artifact}; verify-blob skipped — keyless verify needs ` +
+							"COSIGN_CERTIFICATE_IDENTITY + COSIGN_CERTIFICATE_OIDC_ISSUER)",
+					);
+					continue;
+				}
+				const verify = spawnSync(["cosign", ...verifyArgs]);
+				if (verify.code !== 0) {
+					console.error(`verify-release: verify-blob failed for ${artifact}`);
+					console.error(tail(verify.stderr));
+					await finish(verify.code ?? 1, startedAt);
+				}
+				console.log(`(signed + verified ${artifact})`);
 			}
 		}
-	} else {
-		console.log(
-			"(cosign not configured; release signing skipped — see doc/adr/0001 + §0.12 release boundary)",
-		);
 	}
 
 	console.log("verify-release: OK");
