@@ -323,7 +323,7 @@ silent on questions where reasonable projects differ:
 | ZLS semantic diagnostics                | `scripts/zls-check.ts`            | Per-PR      |
 | Doc comment on every `pub` (§10)        | `scripts/zig-doc-coverage.zig`    | Per-PR      |
 | Fuzz corpus coverage                    | `scripts/verify-pr.ts`            | Per-PR      |
-| Reproducible release build              | `scripts/verify-release.ts`       | Per-release |
+| Reproducible release build (SOURCE_DATE_EPOCH + Mach-O normalize) | `scripts/verify-release.ts` | Per-release |
 | SBOM generation                         | `scripts/emit-sbom.zig`           | Per-release |
 
 When a rule fails, the verifier reports the specific fitness rule id,

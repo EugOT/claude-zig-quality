@@ -48,6 +48,35 @@ async function cleanArtifacts(root: string): Promise<void> {
 }
 
 /**
+ * A stable SOURCE_DATE_EPOCH for the reproducibility rebuilds. Zig honors
+ * this env var for deterministic timestamps; without it, time-sensitive
+ * build outputs can differ between two clean rebuilds and break the
+ * reproducibility hash compare. Resolution order:
+ *   1. An explicit `SOURCE_DATE_EPOCH` already in the environment (operator
+ *      / CI override) — passed through verbatim so a release pipeline can
+ *      pin the value across machines.
+ *   2. The HEAD commit's author timestamp (`git log -1 --format=%ct`) — the
+ *      canonical, content-addressed choice for a tagged release.
+ *   3. A fixed fallback epoch when git is unavailable, so the gate stays
+ *      deterministic in a tool-less environment rather than picking "now".
+ * Returns the value as a decimal-seconds string (the SOURCE_DATE_EPOCH
+ * contract).
+ */
+export function sourceDateEpoch(root: string): string {
+	const fromEnv = process.env.SOURCE_DATE_EPOCH;
+	if (fromEnv && /^\d+$/.test(fromEnv.trim())) return fromEnv.trim();
+	try {
+		const r = spawnSync(["git", "-C", root, "log", "-1", "--format=%ct"]);
+		const t = (r.stdout || "").trim();
+		if (r.code === 0 && /^\d+$/.test(t)) return t;
+	} catch {
+		// git absent — fall through to the fixed fallback below.
+	}
+	// 2026-01-01T00:00:00Z — deterministic, clearly-synthetic fallback.
+	return "1767225600";
+}
+
+/**
  * Hash a directory tree of release artifacts with framing that prevents
  * artifact-boundary aliasing.
  *
@@ -66,6 +95,96 @@ async function cleanArtifacts(root: string): Promise<void> {
  * Exported so unit tests can exercise the framing on a synthetic tmpdir
  * without spinning up a real `zig build`.
  */
+// Mach-O constants (64-bit, little-endian — the only shape Zig emits for
+// aarch64/x86_64-macos).
+const MH_MAGIC_64 = 0xfeedfacf;
+const LC_SEGMENT_64 = 0x19;
+const LC_UUID = 0x1b;
+const REPRO_EXCLUDE_SEGMENTS = new Set(["__LINKEDIT", "__PAGEZERO"]);
+
+/**
+ * Normalize one artifact's bytes for the reproducibility hash.
+ *
+ * macOS is NOT byte-reproducible even with SOURCE_DATE_EPOCH pinned: the
+ * system linker stamps a random LC_UUID per link, and the ad-hoc code
+ * signature + symbol tables in __LINKEDIT are derived from it — so two clean
+ * rebuilds of identical source differ in ~140 bytes. This was confirmed
+ * empirically: the ONLY non-deterministic bytes in the *loadable* image are
+ * the 16-byte LC_UUID payload (which physically sits in the __TEXT segment's
+ * header area); `__text` code and all `__DATA*` are byte-identical across
+ * builds. The remaining variance lives entirely in __LINKEDIT (signature +
+ * symtab bookkeeping), which is not part of the program image.
+ *
+ * So for a Mach-O we hash only the loadable segments (excluding __LINKEDIT /
+ * __PAGEZERO) with the LC_UUID payload zeroed. The result is a deterministic
+ * digest of the actual code+data — a true "the build is reproducible" signal
+ * that tolerates the linker's non-deterministic bookkeeping. Non-Mach-O
+ * artifacts (ELF, PE, wasm) are returned unchanged: on their native
+ * toolchains they are byte-reproducible with SOURCE_DATE_EPOCH, so the strict
+ * byte compare stays authoritative there (notably on Linux CI).
+ *
+ * See ADR 0005 (reproducibility-darwin-uuid) for the full rationale.
+ */
+export function normalizeForRepro(input: Uint8Array): Uint8Array {
+	if (input.byteLength < 32) return input;
+	const dv = new DataView(input.buffer, input.byteOffset, input.byteLength);
+	if (dv.getUint32(0, true) !== MH_MAGIC_64) return input; // not Mach-O 64
+	const ncmds = dv.getUint32(16, true);
+	const buf = new Uint8Array(input); // copy; we zero the UUID in place
+	const bdv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+	// Pass 1: zero the LC_UUID payload (16 bytes after the 8-byte lc header).
+	let off = 32; // sizeof(mach_header_64)
+	for (let i = 0; i < ncmds && off + 8 <= buf.byteLength; i++) {
+		const cmd = bdv.getUint32(off, true);
+		const cmdsize = bdv.getUint32(off + 4, true);
+		const nextOff = off + cmdsize;
+		if (cmdsize < 8 || nextOff > buf.byteLength) break;
+		if (cmd === LC_UUID)
+			buf.fill(0, off + 8, Math.min(off + 24, nextOff));
+		off = nextOff;
+	}
+	// Pass 2: concatenate loadable-segment file ranges (framed by segname+size).
+	const dec = new TextDecoder();
+	const enc = new TextEncoder();
+	const parts: Uint8Array[] = [];
+	off = 32;
+	for (let i = 0; i < ncmds && off + 8 <= buf.byteLength; i++) {
+		const cmd = bdv.getUint32(off, true);
+		const cmdsize = bdv.getUint32(off + 4, true);
+		const nextOff = off + cmdsize;
+		if (cmdsize < 8 || nextOff > buf.byteLength) break;
+		if (cmd === LC_SEGMENT_64) {
+			if (cmdsize < 56 || off + 56 > buf.byteLength) {
+				off = nextOff;
+				continue;
+			}
+			const segname = dec
+				.decode(buf.subarray(off + 8, off + 24))
+				.replace(/\0+$/, "");
+			const fileoff = Number(bdv.getBigUint64(off + 40, true));
+			const filesize = Number(bdv.getBigUint64(off + 48, true));
+			if (
+				!REPRO_EXCLUDE_SEGMENTS.has(segname) &&
+				filesize > 0 &&
+				fileoff + filesize <= buf.byteLength
+			) {
+				parts.push(enc.encode(`${segname}\0${filesize}\0`));
+				parts.push(buf.subarray(fileoff, fileoff + filesize));
+			}
+		}
+		off = nextOff;
+	}
+	if (parts.length === 0) return buf; // unparseable: fall back to the copy
+	const total = parts.reduce((n, p) => n + p.byteLength, 0);
+	const out = new Uint8Array(total);
+	let pos = 0;
+	for (const p of parts) {
+		out.set(p, pos);
+		pos += p.byteLength;
+	}
+	return out;
+}
+
 export async function hashDir(dir: string): Promise<string> {
 	const glob = new Bun.Glob("*");
 	const files: string[] = [];
@@ -86,7 +205,12 @@ export async function hashDir(dir: string): Promise<string> {
 	const NUL = new Uint8Array([0]);
 	const enc = new TextEncoder();
 	for (const f of files) {
-		const bytes = new Uint8Array(await Bun.file(f).arrayBuffer());
+		const raw = new Uint8Array(await Bun.file(f).arrayBuffer());
+		// Normalize away platform-linker non-determinism (Mach-O LC_UUID +
+		// __LINKEDIT) before framing, so the digest reflects the reproducible
+		// program image, not the linker's per-link bookkeeping. Non-Mach-O
+		// artifacts pass through unchanged. See normalizeForRepro / ADR 0005.
+		const bytes = normalizeForRepro(raw);
 		// path \0 size \0 bytes  → length-prefixed framing per file.
 		// Use path.relative + forward-slash normalisation so the digest is
 		// stable across platforms (manual `startsWith("${dir}/")` slicing
@@ -159,9 +283,13 @@ async function main(): Promise<void> {
 	});
 	if (pr.exitCode !== 0) await finish(pr.exitCode ?? 1, startedAt);
 
-	console.log("== Clean non-incremental rebuild ==");
+	// Pin one SOURCE_DATE_EPOCH for BOTH rebuilds so timestamps embedded in
+	// build outputs are identical — a prerequisite for the hash compare below.
+	const sde = sourceDateEpoch(root);
+	const buildEnv = { SOURCE_DATE_EPOCH: sde };
+	console.log(`== Clean non-incremental rebuild (SOURCE_DATE_EPOCH=${sde}) ==`);
 	await cleanArtifacts(root);
-	const build1 = zig(["build", "--summary", "all"]);
+	const build1 = zig(["build", "--summary", "all"], buildEnv);
 	process.stdout.write(build1.stdout);
 	process.stderr.write(build1.stderr);
 	if (build1.code !== 0) {
@@ -173,7 +301,7 @@ async function main(): Promise<void> {
 
 	console.log("== Reproducibility check (second clean rebuild) ==");
 	await cleanArtifacts(root);
-	const build2 = zig(["build", "--summary", "all"]);
+	const build2 = zig(["build", "--summary", "all"], buildEnv);
 	process.stdout.write(build2.stdout);
 	process.stderr.write(build2.stderr);
 	if (build2.code !== 0) {
