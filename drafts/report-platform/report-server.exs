@@ -12,7 +12,7 @@
 # himalayas recon facts baked in:
 #   - meshnet = NordVPN (NOT Tailscale); bind 0.0.0.0 → reachable at
 #     100.100.39.44. No MagicDNS — peers use the raw 100.x IP.
-#   - :4000 is ALREADY taken by ~/srv/ziglint_dash → this binds :4010.
+#   - :4000 is the canonical Phoenix LiveView report surface.
 #   - :8765 is taken by Logitech — do not use.
 #   - pin elixir explicitly (two mise roots on the host).
 #
@@ -34,20 +34,77 @@ Mix.install([
 # (discovered during research validation).
 Application.put_env(:phoenix, :json_library, Jason)
 
-port = String.to_integer(System.get_env("ZQ_REPORT_PORT", "4010"))
+port = String.to_integer(System.get_env("ZQ_REPORT_PORT", "4000"))
 reports_dir = System.get_env("ZQ_REPORTS_DIR", Path.expand("~/zq-report/reports"))
+report_host = System.get_env("ZQ_REPORT_HOST", "100.100.39.44")
+allowed_origins =
+  case System.get_env("ZQ_ALLOWED_ORIGINS") do
+    nil -> ["http://#{report_host}:#{port}", "http://localhost:#{port}", "http://127.0.0.1:#{port}"]
+    raw -> raw |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+  end
+
+defmodule ZQ.Secrets do
+  @moduledoc false
+
+  defp create_secret_file!(path, secret) do
+    case System.cmd("sh", ["-c", "umask 077; set -C; : > \"$1\"", "sh", path], stderr_to_stdout: true) do
+      {_, 0} ->
+        File.write!(path, secret, [:binary])
+        File.chmod!(path, 0o600)
+
+      {output, code} ->
+        raise "could not create secret #{path} with private permissions (exit #{code}): #{String.trim(output)}"
+    end
+  end
+
+  def get!(env, file_name, random_bytes) do
+    case System.get_env(env) do
+      value when is_binary(value) ->
+        value = String.trim(value)
+        if byte_size(value) >= random_bytes, do: value, else: raise "#{env} is too short"
+
+      _ ->
+        dir =
+          System.get_env("ZQ_SECRET_DIR", Path.expand("~/zq-report/.secrets"))
+
+        File.mkdir_p!(dir)
+        File.chmod!(dir, 0o700)
+        path = Path.join(dir, file_name)
+
+        case File.read(path) do
+          {:ok, value} ->
+            value = String.trim(value)
+            if byte_size(value) >= random_bytes, do: value, else: raise "secret #{path} is too short"
+
+          {:error, :enoent} ->
+            secret = :crypto.strong_rand_bytes(random_bytes) |> Base.url_encode64(padding: false)
+            create_secret_file!(path, secret)
+            secret
+
+          {:error, reason} ->
+            raise "could not read secret #{path}: #{inspect(reason)}"
+        end
+    end
+  end
+end
+
+secret_key_base = ZQ.Secrets.get!("ZQ_SECRET_KEY_BASE", ".secret_key_base", 64)
+live_view_signing_salt = ZQ.Secrets.get!("ZQ_LIVE_VIEW_SIGNING_SALT", ".live_view_signing_salt", 24)
+session_signing_salt = ZQ.Secrets.get!("ZQ_SESSION_SIGNING_SALT", ".session_signing_salt", 24)
+session_options = [store: :cookie, key: "_zq_key", signing_salt: session_signing_salt, same_site: "Lax"]
 
 Application.put_env(:zq_report, ZQ.Endpoint,
-  url: [host: System.get_env("ZQ_REPORT_HOST", "100.100.39.44"), port: port],
+  url: [host: report_host, port: port],
   adapter: Bandit.PhoenixAdapter,
   http: [ip: {0, 0, 0, 0}, port: port],
   server: true,
-  secret_key_base: String.duplicate("z", 64),
-  live_view: [signing_salt: "zq-report-platform"],
+  secret_key_base: secret_key_base,
+  live_view: [signing_salt: live_view_signing_salt],
   pubsub_server: ZQ.PubSub,
   render_errors: [formats: [html: ZQ.ErrorHTML]],
-  check_origin: false
+  check_origin: allowed_origins
 )
+Application.put_env(:zq_report, :session_options, session_options)
 
 defmodule ZQ.ErrorHTML do
   def render(t, _), do: Phoenix.Controller.status_message_from_template(t)
@@ -103,9 +160,18 @@ defmodule ZQ.ReportLive do
   end
   def handle_event("tab", %{"t" => t}, s), do: {:noreply, assign(s, tab: t)}
   def handle_event("toggle", %{"i" => i}, s) do
-    i = String.to_integer(i)
-    open = if MapSet.member?(s.assigns.open, i), do: MapSet.delete(s.assigns.open, i), else: MapSet.put(s.assigns.open, i)
-    {:noreply, assign(s, open: open)}
+    case Integer.parse(i) do
+      {idx, ""} when idx >= 0 ->
+        open =
+          if MapSet.member?(s.assigns.open, idx),
+            do: MapSet.delete(s.assigns.open, idx),
+            else: MapSet.put(s.assigns.open, idx)
+
+        {:noreply, assign(s, open: open)}
+
+      _ ->
+        {:noreply, s}
+    end
   end
   def render(%{data: nil} = assigns) do
     ~H"""
@@ -207,7 +273,7 @@ end
 
 defmodule ZQ.Endpoint do
   use Phoenix.Endpoint, otp_app: :zq_report
-  @session_options [store: :cookie, key: "_zq_key", signing_salt: "zq-report-platform", same_site: "Lax"]
+  @session_options Application.fetch_env!(:zq_report, :session_options)
   socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]
   # Vendor the deps' own JS same-origin (the interactivity fix):
   plug Plug.Static, at: "/vendor", from: {:phoenix, "priv/static"}, only: ~w(phoenix.min.js phoenix.min.js.map)

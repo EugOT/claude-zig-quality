@@ -137,10 +137,11 @@ export function normalizeForRepro(input: Uint8Array): Uint8Array {
 	for (let i = 0; i < ncmds && off + 8 <= buf.byteLength; i++) {
 		const cmd = bdv.getUint32(off, true);
 		const cmdsize = bdv.getUint32(off + 4, true);
-		if (cmdsize === 0) break;
+		const nextOff = off + cmdsize;
+		if (cmdsize < 8 || nextOff > buf.byteLength) break;
 		if (cmd === LC_UUID)
-			buf.fill(0, off + 8, Math.min(off + 24, buf.byteLength));
-		off += cmdsize;
+			buf.fill(0, off + 8, Math.min(off + 24, nextOff));
+		off = nextOff;
 	}
 	// Pass 2: concatenate loadable-segment file ranges (framed by segname+size).
 	const dec = new TextDecoder();
@@ -150,8 +151,13 @@ export function normalizeForRepro(input: Uint8Array): Uint8Array {
 	for (let i = 0; i < ncmds && off + 8 <= buf.byteLength; i++) {
 		const cmd = bdv.getUint32(off, true);
 		const cmdsize = bdv.getUint32(off + 4, true);
-		if (cmdsize === 0) break;
+		const nextOff = off + cmdsize;
+		if (cmdsize < 8 || nextOff > buf.byteLength) break;
 		if (cmd === LC_SEGMENT_64) {
+			if (cmdsize < 56 || off + 56 > buf.byteLength) {
+				off = nextOff;
+				continue;
+			}
 			const segname = dec
 				.decode(buf.subarray(off + 8, off + 24))
 				.replace(/\0+$/, "");
@@ -166,7 +172,7 @@ export function normalizeForRepro(input: Uint8Array): Uint8Array {
 				parts.push(buf.subarray(fileoff, fileoff + filesize));
 			}
 		}
-		off += cmdsize;
+		off = nextOff;
 	}
 	if (parts.length === 0) return buf; // unparseable: fall back to the copy
 	const total = parts.reduce((n, p) => n + p.byteLength, 0);

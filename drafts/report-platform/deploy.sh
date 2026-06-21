@@ -3,8 +3,8 @@
 # DRAFT — inspect before running. Deploy the ZQ reports platform to himalayas.
 #
 # Idempotent, read-then-act. Copies the server + a report JSON, installs the
-# launchd agent, (re)loads it, and verifies :4010 answers over the meshnet.
-# Does NOT touch the existing :4000 ziglint_dash service.
+# launchd agent, (re)loads it, and verifies :4000 answers over the meshnet.
+# This is the canonical meshnet report surface for all computers.
 #
 # Usage (after inspection):
 #   ./deploy.sh /path/to/report-data.json          # deploy + register one report
@@ -14,7 +14,7 @@ set -euo pipefail
 
 HOST="himalayas"
 MESHNET_IP="100.100.39.44"
-PORT="4010"
+PORT="4000"
 REMOTE_APP_DIR="/Users/etretiakov/zq-report"
 REMOTE_REPORTS_DIR="/Users/etretiakov/zq-report/reports"
 PLIST="ai.eugot.zq-reports.plist"
@@ -23,13 +23,15 @@ DATA_JSON="${1:-}"
 
 ssh_h() { ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST" "$@"; }
 
-echo "==> Preflight: confirm :$PORT is free and :4000 is left alone"
+echo "==> Preflight: confirm canonical report port :$PORT is available"
 if ssh_h "lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1"; then
-  echo "    NOTE: something already listens on :$PORT — the agent will (re)bind it."
+  echo "    ERROR: something already listens on :$PORT. Stop the stale report service first."
+  ssh_h "lsof -nP -iTCP:$PORT -sTCP:LISTEN"
+  exit 1
 fi
 
 echo "==> Ensure remote dirs"
-ssh_h "mkdir -p '$REMOTE_APP_DIR' '$REMOTE_REPORTS_DIR' '/Volumes/Crucial/Data/zq-reports'"
+ssh_h "mkdir -p '$REMOTE_APP_DIR' '$REMOTE_REPORTS_DIR'"
 
 echo "==> Copy server"
 scp -o ConnectTimeout=10 -o BatchMode=yes "$HERE/report-server.exs" "$HOST:$REMOTE_APP_DIR/report-server.exs"
@@ -37,7 +39,10 @@ scp -o ConnectTimeout=10 -o BatchMode=yes "$HERE/report-server.exs" "$HOST:$REMO
 if [[ -n "$DATA_JSON" && -f "$DATA_JSON" ]]; then
   base="$(basename "$DATA_JSON")"
   echo "==> Copy report: $base"
-  scp -o ConnectTimeout=10 -o BatchMode=yes "$DATA_JSON" "$HOST:$REMOTE_REPORTS_DIR/$base"
+  if ! scp -o ConnectTimeout=10 -o BatchMode=yes "$DATA_JSON" "$HOST:$REMOTE_REPORTS_DIR/$base"; then
+    echo "    FAILED to copy report data: $DATA_JSON" >&2
+    exit 1
+  fi
 fi
 
 echo "==> Install + (re)load launchd agent"
@@ -63,4 +68,4 @@ if [[ -n "$DATA_JSON" ]]; then
 fi
 
 echo "==> Done. Reports index: http://$MESHNET_IP:$PORT/"
-echo "    Logs: ssh $HOST 'tail -f /Volumes/Crucial/Data/zq-reports/server.log'"
+echo "    Logs: ssh $HOST 'tail -f /Users/etretiakov/zq-report/server.log'"

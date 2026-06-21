@@ -13,13 +13,13 @@
     launchctl load -w ~/Library/LaunchAgents/ai.eugot.zq-reports.plist
   Status / logs:
     launchctl list | grep zq-reports
-    tail -f /Volumes/Crucial/Data/zq-reports/server.log
+    tail -f /Users/etretiakov/zq-report/server.log
   Uninstall:
     launchctl unload -w ~/Library/LaunchAgents/ai.eugot.zq-reports.plist
 
   NOTES:
-    - Port 4010 (NOT 4000 — taken by ziglint_dash; NOT 8765 — Logitech).
-    - Logs to /Volumes/Crucial (internal disk is 93% full per recon).
+    - Port 4000: canonical Phoenix LiveView report surface on meshnet.
+    - Logs and report data live under /Users/etretiakov/zq-report by default.
     - elixir pinned to 1.20.1-otp-29 to avoid the host's two-mise-root split.
     - mise path is the nix-darwin one: /etc/profiles/per-user/etretiakov/bin/mise
 -->
@@ -44,7 +44,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>ZQ_REPORT_PORT</key>
-    <string>4010</string>
+    <string>4000</string>
     <key>ZQ_REPORT_HOST</key>
     <string>100.100.39.44</string>
     <key>ZQ_REPORTS_DIR</key>
@@ -63,11 +63,10 @@
   <key>ThrottleInterval</key>
   <integer>10</integer>
 
-  <!-- Logs go to the HOME dir, not the external volume: a LaunchAgent's
+  <!-- Logs and report data go to the app directory by default: a LaunchAgent's
        StandardErrorPath must be writable at spawn time, and an external
-       /Volumes mount may be unavailable/again-permissioned in launchd's
-       context → the job fails with exit 78 (EX_CONFIG) and writes nothing.
-       Report DATA still lives on /Volumes/Crucial (ZQ_REPORTS_DIR). -->
+       /Volumes mount may be unavailable in launchd's context. Move report data
+       only after validating a durable mount contract. -->
   <key>StandardOutPath</key>
   <string>/Users/etretiakov/zq-report/server.log</string>
   <key>StandardErrorPath</key>
