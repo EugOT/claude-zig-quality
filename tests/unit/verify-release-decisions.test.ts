@@ -167,12 +167,12 @@ describe("compareHashes", () => {
 		expect(compareHashes("", "")).toBe("empty");
 	});
 
-	test("returns 'empty' when first hash is empty", () => {
-		expect(compareHashes("", "abc")).toBe("empty");
+	test("returns 'mismatch' when only first hash is empty", () => {
+		expect(compareHashes("", "abc")).toBe("mismatch");
 	});
 
-	test("returns 'empty' when second hash is empty", () => {
-		expect(compareHashes("abc", "")).toBe("empty");
+	test("returns 'mismatch' when only second hash is empty", () => {
+		expect(compareHashes("abc", "")).toBe("mismatch");
 	});
 
 	// Verify the mapping main() relies on: empty and match → no failure;

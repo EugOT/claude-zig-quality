@@ -493,6 +493,22 @@ async function runFuzzBounded(
 	return runFuzz({ limit, timeoutMs: budgetSeconds * 1000 });
 }
 
+/**
+ * Compares two artifact hashes from successive clean rebuilds.
+ * Returns "empty" only when both hashes are empty, "match" when both are
+ * identical, or "mismatch" otherwise. Exported for one-sided rebuild
+ * regression tests.
+ */
+export function compareHashes(
+	h1: string,
+	h2: string,
+): "match" | "mismatch" | "empty" {
+	if (h1.length === 0 && h2.length === 0) return "empty";
+	if (h1.length === 0 || h2.length === 0) return "mismatch";
+	if (h1 === h2) return "match";
+	return "mismatch";
+}
+
 async function main(): Promise<void> {
 	const startedAt = Date.now();
 	const root = repoRoot();
