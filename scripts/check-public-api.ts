@@ -43,7 +43,11 @@ async function extractSurface(root: string, rootFile: string): Promise<string> {
 	// .exists() never throws; .size on a missing file may. Use the safe form
 	// (CodeRabbit finding).
 	if (await Bun.file(scriptPath).exists()) {
-		const r = zig(["run", "scripts/zig-api-surface.zig", "--", abs]);
+		// Pass the resolved absolute scriptPath (not the bare relative string) to
+		// `zig run` — the existence check above already uses scriptPath, and a
+		// relative path FileNotFounds when zig is spawned from a cwd other than
+		// the repo root (the doc-coverage tool hit the same bug).
+		const r = zig(["run", scriptPath, "--", abs]);
 		if (r.code === 0) return r.stdout.trimEnd();
 	}
 	// Fallback: grep-and-sed. Matches lines like:

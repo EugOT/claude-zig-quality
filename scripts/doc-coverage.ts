@@ -17,7 +17,12 @@ import { Glob } from "bun";
 import { repoRoot } from "./lib/runtime.ts";
 import { zig as realZig } from "./lib/zig.ts";
 
-const TOOL = "scripts/zig-doc-coverage.zig";
+// The Zig tool ships next to this wrapper in scripts/. Resolve it against
+// THIS file's directory (import.meta.dir), not the caller's cwd or the project
+// under test — `zig run scripts/zig-doc-coverage.zig` only worked when zig was
+// spawned from the toolkit repo root, so it FileNotFounded (and falsely tripped
+// the failure counter) whenever doc-coverage ran against an external project.
+const TOOL = resolve(import.meta.dir, "zig-doc-coverage.zig");
 
 export async function resolveFiles(
 	root: string,
@@ -50,7 +55,8 @@ export async function main(
 	let failures = 0;
 	for (const file of files) {
 		// `zig run <tool> -- <file>`: the tool prints violations to stderr and
-		// exits 1 when any pub decl is undocumented.
+		// exits 1 when any pub decl is undocumented. TOOL is already absolute
+		// (resolved against import.meta.dir) so this works from any cwd.
 		const r = zig(["run", TOOL, "--", file]);
 		process.stdout.write(r.stdout);
 		process.stderr.write(r.stderr);
