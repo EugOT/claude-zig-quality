@@ -10,7 +10,7 @@
  *   - a fixture repo whose zig-out/bin is empty (or absent)
  *
  * The guard order in main() is:
- *   1. signingEnvError(process.env, hasCosign) → null means "all gates pass"
+ *   1. signingEnvError(signTool, process.env) → null means signing credentials are usable
  *   2. listArtifacts(bin) → [] → print skip message, do NOT invoke cosign
  *
  * After the subprocess exits we assert the marker file is absent, proving
@@ -20,7 +20,7 @@
  *
  * To avoid running the full verify-pr chain (cross-target builds, ZLS, …) we
  * instead test at the reachable seam: verify-release EXPORTS allow us to
- * confirm that signingEnvError returns null AND listArtifacts returns [] for a
+ * confirm that signingEnvError returns null for configured signing AND listArtifacts returns [] for a
  * missing/empty bin dir — the two conditions whose conjunction causes the
  * skip. A subprocess test with a real verify-pr would be multi-minute; that
  * belongs to the e2e file. Here we stay in-process.
@@ -28,7 +28,7 @@
  * The "PATH stub" strategy is documented as the approach for this group
  * (plan order=14) because main() has no injectable seam for cosign.
  * We demonstrate the stub mechanism is SOUND by verifying:
- *   (a) signingEnvError(env, true) === null   — all three gates clear
+ *   (a) signingEnvError(signTool, env) === null — signing tool and credentials are configured
  *   (b) listArtifacts(emptyBinDir) === []     — no artifacts → skip branch
  *   (c) the skip log message in main() is the guard (confirmed by reading source)
  *
@@ -47,7 +47,7 @@ import { listArtifacts, signingEnvError } from "../../scripts/verify-release.ts"
 // Test 1: PATH-stub mechanism + in-process seam
 //
 // Verifies that the conjunction of conditions causing "signing skipped" holds:
-//   signingEnvError({COSIGN_ENABLED:"1", CI:"true"}, hasCosign=true) === null
+//   signingEnvError("/tmp/cosign", { COSIGN_KEY: "k.key" }) === null
 //   listArtifacts(emptyOrMissingBin) === []
 // Together these prove the skip branch in main() is reached when artifacts=0.
 // ---------------------------------------------------------------------------
@@ -66,10 +66,10 @@ describe("cosign-skip-when-empty-artifacts (in-process seam)", () => {
 		}
 	});
 
-	test("signingEnvError returns null when COSIGN_ENABLED=1, CI=true, hasCosign=true", () => {
+	test("signingEnvError returns null when cosign path and key are configured", () => {
 		// This is the gate that allows signing to proceed in main().
 		// When it returns null, main() falls through to listArtifacts.
-		const result = signingEnvError({ COSIGN_ENABLED: "1", CI: "true" }, true);
+		const result = signingEnvError("/tmp/cosign", { COSIGN_KEY: "k.key" });
 		expect(result).toBeNull();
 	});
 
@@ -77,8 +77,6 @@ describe("cosign-skip-when-empty-artifacts (in-process seam)", () => {
 		// Missing zig-out/bin → no artifacts → main() prints skip message,
 		// does NOT call spawnSync(signingArgs(artifact)).
 		const missingBin = join(tmpDir, "zig-out", "bin");
-		// Confirm the dir does not exist.
-		const exists = Bun.file(missingBin).exists();
 		// listArtifacts must return [] (not throw) for ENOENT.
 		expect(listArtifacts(missingBin)).toEqual([]);
 	});
@@ -112,9 +110,9 @@ describe("cosign-skip-when-empty-artifacts (in-process seam)", () => {
 		// Document the contract: when BOTH conditions hold, main() skips signing.
 		// This is the authoritative unit-level evidence that the guard works.
 
-		// Condition A: signing env is fully configured (all three gates clear).
-		const envA = { COSIGN_ENABLED: "1", CI: "true" };
-		expect(signingEnvError(envA, /* hasCosign */ true)).toBeNull();
+		// Condition A: signing tool and credentials are configured.
+		const envA = { COSIGN_KEY: "k.key" };
+		expect(signingEnvError("/tmp/cosign", envA)).toBeNull();
 
 		// Condition B: artifact list is empty.
 		const emptyBin = join(tmpDir, "zig-out", "bin");
@@ -167,8 +165,8 @@ describe("cosign PATH-stub: marker absent proves cosign was never spawned", () =
 			{ mode: 0o755 },
 		);
 
-		// Simulate the guard: Bun.which("cosign") would find the stub (hasCosign=true),
-		// signingEnvError returns null, but listArtifacts([]) → guard prints skip and returns.
+		// Simulate the guard: signingEnvError returns null for a configured signer,
+		// but listArtifacts([]) causes main() to skip before spawning cosign.
 		// We assert this without running main() by checking the guard directly.
 		const emptyBin = join(tmpDir, "zig-out", "bin");
 		await mkdir(emptyBin, { recursive: true });

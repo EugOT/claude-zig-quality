@@ -24,12 +24,9 @@ export const DENY_PATTERNS: RegExp[] = [
 	// Interspersed flags (e.g. `rm -rf --no-preserve-root /`) must not slip the
 	// guard — the original `\s+/` required the slash immediately after -rf, so
 	// any flag between -rf and the path defeated it (security finding, 2026-06).
-	/\brm\s+-rf?(\s+--?\S+)*\s+\//,
-	// `--force(?!-with-lease)`: the blanket force-push deny must NOT fire on the
-	// *safer* `--force-with-lease`; the dedicated rule below still blocks the
-	// dangerous `--force-with-lease origin main` (security finding, 2026-06).
+	/\brm\s+-rf?(\s+--?\S+)*\s+([/.]|\.\.?\/)/,
 	/\bgit\s+push\s+(--force(?!-with-lease)|-f)\b/,
-	/\bgit\s+push\s+--force-with-lease\s+origin\s+main\b/,
+	/\bgit\s+push\b.*--force-with-lease\b/,
 	/\bgit\s+tag\b/,
 	/\bcosign\b/,
 	/\bchezmoi\s+purge\b/,

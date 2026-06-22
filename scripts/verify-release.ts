@@ -592,7 +592,7 @@ async function main(): Promise<void> {
 	const sbomScript = resolve(root, "scripts/emit-sbom.zig");
 	let sbomWritten = false;
 	if (await Bun.file(sbomScript).exists()) {
-		const sbom = zig(["run", "scripts/emit-sbom.zig", "--", "build.zig.zon"]);
+		const sbom = zig(["run", sbomScript, "--", "build.zig.zon"]);
 		if (sbom.code === 0) {
 			await Bun.write(sbomPath, sbom.stdout);
 			console.log("(wrote sbom.cdx.json)");

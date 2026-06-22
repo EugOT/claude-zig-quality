@@ -10,9 +10,8 @@
  *   GAP-1: rm with flags between -rf and / evades the pattern.
  *   GAP-2: rm -rf <subpath> is caught (slash prefix), but this means any
  *           path starting with / is denied, which may be overly broad.
- *   GAP-3: /\bgit\s+push\s+(--force|-f)\b/ matches --force-with-lease
- *           because \b fires between 'force' and '-' (non-word char). This
- *           causes force-with-lease on any branch (not just main) to be denied.
+ *   Force-with-lease is denied broadly: it is safer than --force but still
+ *   rewrites remote history, so release/agent automation must not run it.
  *
  * STRATEGY: Import the exported arrays directly and test regex matching
  * in-process. No subprocess needed for the regex layer — it is pure JS.
@@ -86,6 +85,7 @@ const RM_RF_ROOT          = ["rm", "-rf", SLASH].join(" ");
 const RM_RF_NO_PRESERVE   = ["rm", "-rf", "--no-preserve-root", SLASH].join(" ");
 const RM_RF_SUBPATH       = ["rm", "-rf", SLASH + "tmp/build"].join(" ");
 const RM_RF_DOUBLE_SPACE  = "rm  -rf  " + SLASH;
+const RM_RF_DOT           = ["rm", "-rf", "."].join(" ");
 const GIT_PUSH_FORCE      = "git push --force";
 const GIT_PUSH_F          = "git push -f";
 const GIT_PUSH_SAFE       = "git push origin main";
@@ -138,6 +138,11 @@ describe("DENY_PATTERNS", () => {
       // multiple spaces between tokens still trigger the guard.
       expect(denies(RM_RF_DOUBLE_SPACE)).toBe(true);
     });
+
+    test("(4b) rm -rf . is denied", () => {
+      // A bare dot is just as destructive inside the repo as an absolute root.
+      expect(denies(RM_RF_DOT)).toBe(true);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -168,14 +173,10 @@ describe("DENY_PATTERNS", () => {
       expect(denies(GIT_PUSH_FWL_MAIN)).toBe(true);
     });
 
-    test("(9) git push --force-with-lease origin feature-branch is NOT denied [GAP-3 FIXED 2026-06]", () => {
-      // GAP-3 (was a false positive): the blanket force-push rule used to fire
-      // on the *safer* --force-with-lease (\\b matches between 'force' and '-').
-      // pattern[1] now uses a negative lookahead /--force(?!-with-lease)/, so a
-      // force-with-lease push to a feature branch is allowed. The dangerous
-      // `--force-with-lease origin main` is still denied by the dedicated rule
-      // (see test 8) — that pairing remains a mutation sentinel.
-      expect(denies(GIT_PUSH_FWL_FEAT)).toBe(false);
+    test("(9) git push --force-with-lease origin feature-branch is denied", () => {
+      // Force-with-lease is safer than --force but still rewrites remote history.
+      // Agent automation must not run it on any branch.
+      expect(denies(GIT_PUSH_FWL_FEAT)).toBe(true);
     });
   });
 

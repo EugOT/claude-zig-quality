@@ -37,6 +37,15 @@ describe("zigSupportsFuzz - darwin + Zig 0.16.0 degradation (ziglang/zig#20986)"
 		);
 	});
 
+	test("scenario 1b: returns false on darwin with Zig 0.16.0 dev suffix", () => {
+		expect(
+			zigSupportsFuzz({
+				platform: "darwin",
+				version: "0.16.0-dev.1234+abc",
+			}),
+		).toBe(false);
+	});
+
 	/**
 	 * Scenario 2: ZIG_QM_FORCE_FUZZ=1 overrides the darwin/0.16.0 block.
 	 *

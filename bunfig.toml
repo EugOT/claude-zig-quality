@@ -18,5 +18,5 @@ coverageSkipTestFiles = true
 # remaining big gaps (zls.ts, verify-*.ts).
 # After Wave 1 (2026-06-22): ~42% lines / ~44% funcs aggregate.
 [test.coverageThreshold]
-line = 0.40
+line = 0.42
 function = 0.43

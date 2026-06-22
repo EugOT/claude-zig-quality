@@ -225,7 +225,7 @@ export function zigSupportsFuzz(deps: ZigSupportsFuzzDeps = {}): boolean {
 	if ((deps.forceFuzz ?? process.env.ZIG_QM_FORCE_FUZZ) === "1") return true;
 	const os = deps.platform ?? process.platform;
 	const v = deps.version ?? zigVersion();
-	if (os === "darwin" && v === TARGET_VERSION) return false;
+	if (os === "darwin" && v.split(/[+-]/)[0] === TARGET_VERSION) return false;
 	return true;
 }
 
