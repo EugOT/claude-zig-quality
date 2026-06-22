@@ -168,3 +168,251 @@ fn printErrFmt(io: std.Io, comptime fmt: []const u8, args: anytype) !void {
     try w.interface.print(fmt, args);
     try w.flush();
 }
+
+// ── classifyDecl tests ───────────────────────────────────────────────────────
+
+test "classifyDecl: pub fn yields name and kind=fn" {
+    const alloc = std.testing.allocator;
+    const src =
+        \\pub fn greet(name: []const u8) void { _ = name; }
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    const decls = ast.rootDecls();
+    try std.testing.expectEqual(@as(usize, 1), decls.len);
+    const entry = classifyDecl(ast, decls[0]) orelse {
+        return error.ClassifyReturnedNull;
+    };
+    try std.testing.expectEqualStrings("greet", entry.name);
+    try std.testing.expectEqualStrings("fn", entry.kind);
+}
+
+test "classifyDecl: private fn yields null" {
+    const alloc = std.testing.allocator;
+    const src =
+        \\fn secret() void {}
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+
+    const decls = ast.rootDecls();
+    try std.testing.expectEqual(@as(usize, 1), decls.len);
+    const result = classifyDecl(ast, decls[0]);
+    try std.testing.expectEqual(@as(?Entry, null), result);
+}
+
+test "classifyDecl: pub const yields name and kind=const" {
+    const alloc = std.testing.allocator;
+    const src =
+        \\pub const max_size: usize = 64;
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    const decls = ast.rootDecls();
+    try std.testing.expectEqual(@as(usize, 1), decls.len);
+    const entry = classifyDecl(ast, decls[0]) orelse {
+        return error.ClassifyReturnedNull;
+    };
+    try std.testing.expectEqualStrings("max_size", entry.name);
+    try std.testing.expectEqualStrings("const", entry.kind);
+}
+
+test "classifyDecl: pub var yields name and kind=var" {
+    const alloc = std.testing.allocator;
+    const src =
+        \\pub var counter: u32 = 0;
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    const decls = ast.rootDecls();
+    try std.testing.expectEqual(@as(usize, 1), decls.len);
+    const entry = classifyDecl(ast, decls[0]) orelse {
+        return error.ClassifyReturnedNull;
+    };
+    try std.testing.expectEqualStrings("counter", entry.name);
+    try std.testing.expectEqualStrings("var", entry.kind);
+}
+
+test "classifyDecl: private const yields null" {
+    const alloc = std.testing.allocator;
+    const src =
+        \\const internal: u8 = 0;
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+
+    const decls = ast.rootDecls();
+    try std.testing.expectEqual(@as(usize, 1), decls.len);
+    const result = classifyDecl(ast, decls[0]);
+    try std.testing.expectEqual(@as(?Entry, null), result);
+}
+
+test "classifyDecl: test block yields null (else arm)" {
+    const alloc = std.testing.allocator;
+    // A test block at the top level must not appear as a public decl.
+    const src =
+        \\const std = @import("std");
+        \\test "example" { try std.testing.expect(true); }
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+
+    // Walk all root decls; the test block must produce null.
+    var found_non_null = false;
+    for (ast.rootDecls()) |d| {
+        if (classifyDecl(ast, d)) |_| {
+            found_non_null = true;
+        }
+    }
+    try std.testing.expect(!found_non_null);
+}
+
+test "classifyDecl: multiple mixed decls in one parse" {
+    const alloc = std.testing.allocator;
+    const src =
+        \\pub fn alpha() void {}
+        \\fn beta() void {}
+        \\pub const Gamma = 3;
+        \\const delta = 4;
+        \\pub var epsilon: u8 = 5;
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    var pub_count: usize = 0;
+    for (ast.rootDecls()) |d| {
+        if (classifyDecl(ast, d)) |_| pub_count += 1;
+    }
+    // alpha (fn), Gamma (const), epsilon (var) — 3 pub decls.
+    try std.testing.expectEqual(@as(usize, 3), pub_count);
+}
+
+// ── hasPubBefore tests ───────────────────────────────────────────────────────
+
+test "hasPubBefore: token index 0 returns false (underflow guard)" {
+    // Construct a minimal token slice with a single keyword_fn at index 0.
+    const tags = [_]std.zig.Token.Tag{.keyword_fn};
+    try std.testing.expect(!hasPubBefore(&tags, 0));
+}
+
+test "hasPubBefore: pub immediately before fn token returns true" {
+    const alloc = std.testing.allocator;
+    const src =
+        \\pub fn visible() void {}
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+
+    const main_tokens = ast.nodes.items(.main_token);
+    const token_tags = ast.tokens.items(.tag);
+    // rootDecls()[0] is the fn_decl; its main_token is the `fn` keyword.
+    const main_tok = main_tokens[@intFromEnum(ast.rootDecls()[0])];
+    try std.testing.expect(hasPubBefore(token_tags, main_tok));
+}
+
+test "hasPubBefore: doc_comment between pub and fn is skipped, still true" {
+    const alloc = std.testing.allocator;
+    const src =
+        \\/// documented
+        \\pub fn visible() void {}
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+
+    const main_tokens = ast.nodes.items(.main_token);
+    const token_tags = ast.tokens.items(.tag);
+    const main_tok = main_tokens[@intFromEnum(ast.rootDecls()[0])];
+    try std.testing.expect(hasPubBefore(token_tags, main_tok));
+}
+
+test "hasPubBefore: no pub before private fn returns false" {
+    const alloc = std.testing.allocator;
+    const src =
+        \\fn hidden() void {}
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+
+    const main_tokens = ast.nodes.items(.main_token);
+    const token_tags = ast.tokens.items(.tag);
+    const main_tok = main_tokens[@intFromEnum(ast.rootDecls()[0])];
+    try std.testing.expect(!hasPubBefore(token_tags, main_tok));
+}
+
+// ── findFnNameToken tests ─────────────────────────────────────────────────────
+
+test "findFnNameToken: returns identifier for a simple pub fn" {
+    const alloc = std.testing.allocator;
+    const src =
+        \\pub fn compute(x: u32) u32 { return x; }
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+
+    const decls = ast.rootDecls();
+    const tok = findFnNameToken(ast, decls[0]);
+    try std.testing.expect(tok != null);
+    try std.testing.expectEqualStrings("compute", ast.tokenSlice(tok.?));
+}
+
+test "findFnNameToken: finds name within 4-token window for multi-param fn" {
+    // findFnNameToken scans at most 4 tokens from the main_token (`fn`).
+    // In valid Zig, `fn <identifier>` is always within that window.
+    // The guard exists for defence-in-depth against malformed ASTs.
+    // We verify it correctly resolves the name for the worst normal case
+    // (many params — name is still at offset 1 from `fn`).
+    const alloc = std.testing.allocator;
+    const src =
+        \\pub fn longName(a: u8, b: u16, c: u32, d: u64) void { _ = .{ a, b, c, d }; }
+        \\
+    ;
+    const srcz = try alloc.dupeZ(u8, src);
+    defer alloc.free(srcz);
+    var ast = try std.zig.Ast.parse(alloc, srcz, .zig);
+    defer ast.deinit(alloc);
+
+    const tok = findFnNameToken(ast, ast.rootDecls()[0]);
+    // Should find `longName` within the lookahead window.
+    try std.testing.expect(tok != null);
+    try std.testing.expectEqualStrings("longName", ast.tokenSlice(tok.?));
+}

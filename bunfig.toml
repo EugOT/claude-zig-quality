@@ -10,9 +10,13 @@ coverageDir = "coverage"
 # Only count our own source as coverable (not the test files themselves).
 coverageSkipTestFiles = true
 
-# Ratchet: raise these toward 100 as task-groups T3..T12 land. Set to the
-# measured baseline now so the gate is real but does not block the in-progress
-# drive. (Baseline 2026-06-22: ~31% lines / ~42% funcs across tested files.)
+# Ratchet: raise these toward 100 as task-groups land. The aggregate is held
+# down by subprocess-tested files (hooks + verify-* orchestrators whose main()
+# runs in child processes invisible to in-process instrumentation; the plan
+# explicitly says NOT to gate on those). Unit-tested pure libs are already high
+# (files.ts 96%, zig.ts 72%). Wave 2 (fake-ZLS drain, orchestrator DI) lifts the
+# remaining big gaps (zls.ts, verify-*.ts).
+# After Wave 1 (2026-06-22): ~42% lines / ~44% funcs aggregate.
 [test.coverageThreshold]
-line = 0.30
-function = 0.40
+line = 0.40
+function = 0.43

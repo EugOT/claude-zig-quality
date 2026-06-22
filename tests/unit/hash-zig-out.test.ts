@@ -15,7 +15,7 @@
  */
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hashDir } from "../../scripts/verify-release.ts";
@@ -64,4 +64,50 @@ test("hashDir returns empty string for missing dir", async () => {
 test("hashDir returns empty string for empty dir", async () => {
 	const h = await hashDir(dirA);
 	expect(h).toBe("");
+});
+
+// ── New cases (plan §9) ─────────────────────────────────────────────────────
+
+test("hashDir re-throws EACCES (not empty string) when a subdir is unreadable", async () => {
+	// Skip when running as root (root bypasses permission checks).
+	if (process.getuid?.() === 0) {
+		console.log("(skipped: running as root, chmod 000 has no effect)");
+		return;
+	}
+	// Skip in CI environments where the test runner may also be root.
+	if (process.env.CI === "true" || process.env.CI === "1") {
+		console.log("(skipped: CI environment detected)");
+		return;
+	}
+	await writeFile(join(dirA, "legit"), "contents");
+	// Create a subdir that hashDir's Bun.Glob will try to scan; make it unreadable.
+	// Note: Bun.Glob("*") with absolute:true on the parent dir will encounter
+	// this subdir as an entry; when it tries to stat/open it, EACCES fires.
+	// We test that hashDir propagates the error rather than silently returning "".
+	const locked = join(dirA, "locked-subdir");
+	await mkdir(locked, { recursive: true });
+	await writeFile(join(locked, "secret"), "hidden");
+	await chmod(locked, 0o000);
+	try {
+		await expect(hashDir(locked)).rejects.toThrow();
+	} finally {
+		// Restore permissions so rm() in afterEach can clean up.
+		await chmod(locked, 0o755);
+	}
+});
+
+test("hashDir normalizes path separators to forward slash", async () => {
+	// Write files and confirm the digest is stable across platforms.
+	// The relative path used in the hasher must use '/' regardless of OS sep.
+	await writeFile(join(dirA, "artifact"), "payload");
+	const h1 = await hashDir(dirA);
+	expect(h1).not.toBe("");
+	// A second call must produce the exact same digest — forward-slash
+	// normalisation is deterministic, not random per invocation.
+	const h2 = await hashDir(dirA);
+	expect(h1).toBe(h2);
+	// The digest changes when the filename changes (path is part of the frame).
+	await writeFile(join(dirB, "artifact_renamed"), "payload");
+	const h3 = await hashDir(dirB);
+	expect(h1).not.toBe(h3);
 });

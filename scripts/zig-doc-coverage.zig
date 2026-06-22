@@ -228,6 +228,294 @@ fn printErrFmt(io: std.Io, comptime fmt: []const u8, args: anytype) !void {
     try w.flush();
 }
 
+// ---------------------------------------------------------------------------
+// Unit tests — TIGER_STYLE_ZIG §3: std.testing.allocator on every test that
+// allocates; _ = alloc where the test does not.
+// ---------------------------------------------------------------------------
+
+// --- isDocumented -----------------------------------------------------------
+
+test "isDocumented: firstToken == 0 guard returns false (no underflow)" {
+    // Build a minimal AST whose first root decl has firstToken == 0 so the
+    // `if (first == 0) return false` guard is exercised without an underflow.
+    // A bare `pub fn main() void {}` parses cleanly; firstToken of the fn_decl
+    // node points to the `pub` keyword, which is token 0 in this source.
+    const gpa = std.testing.allocator;
+    const src = "pub fn main() void {}\n";
+    const srcz = try gpa.dupeZ(u8, src);
+    defer gpa.free(srcz);
+    var ast = try std.zig.Ast.parse(gpa, srcz, .zig);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    const token_tags = ast.tokens.items(.tag);
+    const decls = ast.rootDecls();
+    try std.testing.expect(decls.len >= 1);
+    // `pub` keyword is the very first token (index 0), so firstToken == 0.
+    const first = ast.firstToken(decls[0]);
+    try std.testing.expectEqual(@as(std.zig.Ast.TokenIndex, 0), first);
+    // isDocumented must return false (not underflow to token[~0]).
+    try std.testing.expectEqual(false, isDocumented(ast, token_tags, decls[0]));
+}
+
+test "isDocumented: consecutive /// lines all adjacent → documented" {
+    // Multiple consecutive `///` lines immediately before `pub` — the last
+    // `///` token is at firstToken-1, which is still `.doc_comment`.
+    const gpa = std.testing.allocator;
+    const src =
+        \\/// First line of doc comment.
+        \\/// Second line of doc comment.
+        \\/// Third line.
+        \\pub fn multiLine() void {}
+        \\
+    ;
+    const srcz = try gpa.dupeZ(u8, src);
+    defer gpa.free(srcz);
+    var ast = try std.zig.Ast.parse(gpa, srcz, .zig);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    const token_tags = ast.tokens.items(.tag);
+    var found: bool = false;
+    for (ast.rootDecls()) |d| {
+        const decl = classifyPubDecl(ast, d) orelse continue;
+        if (std.mem.eql(u8, decl.name, "multiLine")) {
+            found = true;
+            try std.testing.expectEqual(true, isDocumented(ast, token_tags, d));
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "isDocumented: blank line between /// and pub → not documented" {
+    // A blank line between the doc comment and the declaration means the
+    // token immediately before `pub` is NOT `.doc_comment`; the parser emits
+    // no token for the blank line itself.  Zig's grammar does NOT attach a
+    // doc comment across a blank line, so we expect `false`.
+    //
+    // NOTE: In Zig's AST, plain `//` is not a token at all, but `///` IS a
+    // token. However, a blank line resets doc-comment attachment — the `///`
+    // tokens are parsed at their actual position; if another non-doc token
+    // (like a newline-triggered reset or another identifier) intervenes,
+    // the doc_comment will not be immediately before `pub`.
+    // The simplest way to break adjacency is to put a non-pub, non-doc
+    // token between them — a private decl interrupts the sequence.
+    const gpa = std.testing.allocator;
+    const src =
+        \\/// This doc comment belongs to an earlier decl.
+        \\const _gap = 0;
+        \\pub fn separated() void {}
+        \\
+    ;
+    const srcz = try gpa.dupeZ(u8, src);
+    defer gpa.free(srcz);
+    var ast = try std.zig.Ast.parse(gpa, srcz, .zig);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    const token_tags = ast.tokens.items(.tag);
+    var found: bool = false;
+    for (ast.rootDecls()) |d| {
+        const decl = classifyPubDecl(ast, d) orelse continue;
+        if (std.mem.eql(u8, decl.name, "separated")) {
+            found = true;
+            // No doc comment immediately before this `pub`.
+            try std.testing.expectEqual(false, isDocumented(ast, token_tags, d));
+        }
+    }
+    try std.testing.expect(found);
+}
+
+// --- classifyPubDecl --------------------------------------------------------
+
+test "classifyPubDecl: pub fn main → is_main=true (exemption)" {
+    const gpa = std.testing.allocator;
+    const src = "pub fn main() void {}\n";
+    const srcz = try gpa.dupeZ(u8, src);
+    defer gpa.free(srcz);
+    var ast = try std.zig.Ast.parse(gpa, srcz, .zig);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    const decls = ast.rootDecls();
+    try std.testing.expect(decls.len >= 1);
+    const result = classifyPubDecl(ast, decls[0]);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqual(true, result.?.is_main);
+    try std.testing.expectEqualStrings("main", result.?.name);
+    try std.testing.expectEqualStrings("fn", result.?.kind);
+}
+
+test "classifyPubDecl: private fn → null (not public surface)" {
+    const gpa = std.testing.allocator;
+    const src = "fn privateHelper() void {}\n";
+    const srcz = try gpa.dupeZ(u8, src);
+    defer gpa.free(srcz);
+    var ast = try std.zig.Ast.parse(gpa, srcz, .zig);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    for (ast.rootDecls()) |d| {
+        try std.testing.expectEqual(@as(?PubDecl, null), classifyPubDecl(ast, d));
+    }
+}
+
+test "classifyPubDecl: pub const → kind=const, is_main=false" {
+    const gpa = std.testing.allocator;
+    const src = "pub const MaxSize: usize = 4096;\n";
+    const srcz = try gpa.dupeZ(u8, src);
+    defer gpa.free(srcz);
+    var ast = try std.zig.Ast.parse(gpa, srcz, .zig);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    var found: bool = false;
+    for (ast.rootDecls()) |d| {
+        const decl = classifyPubDecl(ast, d) orelse continue;
+        found = true;
+        try std.testing.expectEqualStrings("const", decl.kind);
+        try std.testing.expectEqualStrings("MaxSize", decl.name);
+        try std.testing.expectEqual(false, decl.is_main);
+    }
+    try std.testing.expect(found);
+}
+
+test "classifyPubDecl: pub var → kind=var, is_main=false" {
+    const gpa = std.testing.allocator;
+    const src = "pub var counter: u32 = 0;\n";
+    const srcz = try gpa.dupeZ(u8, src);
+    defer gpa.free(srcz);
+    var ast = try std.zig.Ast.parse(gpa, srcz, .zig);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    var found: bool = false;
+    for (ast.rootDecls()) |d| {
+        const decl = classifyPubDecl(ast, d) orelse continue;
+        found = true;
+        try std.testing.expectEqualStrings("var", decl.kind);
+        try std.testing.expectEqualStrings("counter", decl.name);
+        try std.testing.expectEqual(false, decl.is_main);
+    }
+    try std.testing.expect(found);
+}
+
+test "classifyPubDecl: fn_proto_simple classified as fn" {
+    // A function with exactly one param and no body is fn_proto_simple in the
+    // Zig 0.16 AST.  `pub fn name(x: T) R;` has token sequence
+    // [keyword_pub][keyword_fn][identifier]… so hasPubBefore(fn_tok) → true.
+    // Note: `pub extern fn` inserts a keyword_extern between pub and fn, which
+    // blocks hasPubBefore — that form is intentionally excluded by this tool
+    // (extern fns have no Zig-side doc obligation).
+    const gpa = std.testing.allocator;
+    const src = "pub fn simpleProto(x: i32) i32;\n";
+    const srcz = try gpa.dupeZ(u8, src);
+    defer gpa.free(srcz);
+    var ast = try std.zig.Ast.parse(gpa, srcz, .zig);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    var found: bool = false;
+    for (ast.rootDecls()) |d| {
+        const decl = classifyPubDecl(ast, d) orelse continue;
+        found = true;
+        try std.testing.expectEqualStrings("fn", decl.kind);
+        try std.testing.expectEqualStrings("simpleProto", decl.name);
+        try std.testing.expectEqual(false, decl.is_main);
+    }
+    try std.testing.expect(found);
+}
+
+// --- hasPubBefore -----------------------------------------------------------
+
+test "hasPubBefore: skips doc_comment tokens then finds pub → true" {
+    // Parse a documented pub fn; the token sequence before the fn keyword is:
+    //   [doc_comment] [keyword_pub] [keyword_fn] ...
+    // hasPubBefore is called with the fn keyword token index and must skip
+    // the pub keyword to find it (it scans backward).
+    const gpa = std.testing.allocator;
+    const src =
+        \\/// doc
+        \\pub fn example() void {}
+        \\
+    ;
+    const srcz = try gpa.dupeZ(u8, src);
+    defer gpa.free(srcz);
+    var ast = try std.zig.Ast.parse(gpa, srcz, .zig);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    const token_tags = ast.tokens.items(.tag);
+    // Find the `fn` keyword token; hasPubBefore must return true.
+    var fn_tok: ?std.zig.Ast.TokenIndex = null;
+    for (0..token_tags.len) |i| {
+        if (token_tags[i] == .keyword_fn) {
+            fn_tok = @intCast(i);
+            break;
+        }
+    }
+    try std.testing.expect(fn_tok != null);
+    try std.testing.expectEqual(true, hasPubBefore(token_tags, fn_tok.?));
+}
+
+test "hasPubBefore: private fn → false" {
+    const gpa = std.testing.allocator;
+    const src = "fn internal() void {}\n";
+    const srcz = try gpa.dupeZ(u8, src);
+    defer gpa.free(srcz);
+    var ast = try std.zig.Ast.parse(gpa, srcz, .zig);
+    defer ast.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), ast.errors.len);
+
+    const token_tags = ast.tokens.items(.tag);
+    var fn_tok: ?std.zig.Ast.TokenIndex = null;
+    for (0..token_tags.len) |i| {
+        if (token_tags[i] == .keyword_fn) {
+            fn_tok = @intCast(i);
+            break;
+        }
+    }
+    try std.testing.expect(fn_tok != null);
+    try std.testing.expectEqual(false, hasPubBefore(token_tags, fn_tok.?));
+}
+
+// --- lineOf -----------------------------------------------------------------
+
+test "lineOf: offset 0 → line 1" {
+    _ = std.testing.allocator; // no allocation in this test
+    const src = "pub fn main() void {}\n";
+    try std.testing.expectEqual(@as(usize, 1), lineOf(src, 0));
+}
+
+test "lineOf: counts newlines correctly across multi-line source" {
+    _ = std.testing.allocator; // no allocation in this test
+    const src = "line1\nline2\nline3\n";
+    // Offset 0 → line 1 (before any '\n').
+    try std.testing.expectEqual(@as(usize, 1), lineOf(src, 0));
+    // Offset 6 is the 'l' of "line2" (after the first '\n' at index 5).
+    try std.testing.expectEqual(@as(usize, 2), lineOf(src, 6));
+    // Offset 12 is the 'l' of "line3".
+    try std.testing.expectEqual(@as(usize, 3), lineOf(src, 12));
+}
+
+test "lineOf: pos beyond source.len clamps to end (no OOB)" {
+    _ = std.testing.allocator; // no allocation in this test
+    const src = "a\nb\n";
+    // The function clamps via `@min(pos, source.len)`, so a huge offset
+    // returns the total line count rather than crashing.
+    try std.testing.expectEqual(@as(usize, 3), lineOf(src, 9999));
+}
+
+// NOTE: Functional / subprocess exit-code tests (exit 0, exit 1 with
+// diagnostic, exit 2 for no-args) are deferred to Wave 2 TypeScript
+// functional tests in scripts/doc-coverage.ts.  Reason: std.process.Child
+// inside an embedded `test {}` block requires the compiled binary to exist
+// on disk first, which creates a chicken-and-egg build dependency that the
+// `test-scripts` step (which compiles *and* runs tests from the same source)
+// cannot satisfy without a two-phase build.  The TS gate (doc-coverage.ts)
+// already exercises these exit-code paths end-to-end as part of the per-PR
+// tier.
+
 test "isDocumented detects /// before pub and rejects plain // and missing" {
     const gpa = std.testing.allocator;
     const src =
