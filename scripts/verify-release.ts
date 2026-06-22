@@ -273,19 +273,33 @@ export function signingEnvError(
 }
 
 /**
- * Phase 3: build the `cosign verify-blob` argv for an artifact + its
- * signature. Key-based verification uses COSIGN_KEY (or its COSIGN_PUBLIC_KEY
- * counterpart). Keyless verification requires the certificate identity +
- * issuer; when those are absent we return null so the caller can skip
- * verification with a clear notice rather than run an always-failing command.
+ * Phase 3: build cosign argv for signing and verifying a blob. Key-based
+ * signing must pass the configured private key. Keyless verification uses the
+ * Sigstore bundle emitted by sign-blob plus the expected certificate identity
+ * and OIDC issuer.
  */
+export function signingSignArgs(
+	artifact: string,
+	sigPath: string,
+	env: Record<string, string | undefined> = process.env,
+	bundlePath = `${artifact}.sigstore.json`,
+): string[] {
+	const key = env.COSIGN_KEY;
+	if (key && key.length > 0) {
+		return ["sign-blob", "--key", key, "--yes", "--output-signature", sigPath, artifact];
+	}
+	return ["sign-blob", "--yes", "--bundle", bundlePath, artifact];
+}
+
 export function signingVerifyArgs(
 	artifact: string,
 	sigPath: string,
 	env: Record<string, string | undefined> = process.env,
+	bundlePath = `${artifact}.sigstore.json`,
 ): string[] | null {
-	const pub = env.COSIGN_PUBLIC_KEY || env.COSIGN_KEY;
-	if (pub && pub.length > 0) {
+	const key = env.COSIGN_KEY;
+	if (key && key.length > 0) {
+		const pub = env.COSIGN_PUBLIC_KEY || key;
 		return ["verify-blob", "--key", pub, "--signature", sigPath, artifact];
 	}
 	const identity = env.COSIGN_CERTIFICATE_IDENTITY;
@@ -293,12 +307,12 @@ export function signingVerifyArgs(
 	if (identity && issuer) {
 		return [
 			"verify-blob",
+			"--bundle",
+			bundlePath,
 			"--certificate-identity",
 			identity,
 			"--certificate-oidc-issuer",
 			issuer,
-			"--signature",
-			sigPath,
 			artifact,
 		];
 	}
@@ -641,16 +655,7 @@ async function main(): Promise<void> {
 		} else {
 			for (const artifact of artifacts) {
 				const sigPath = `${artifact}.sig`;
-				// `--output-signature` writes the .sig directly (its stdout mixes
-				// status with the signature blob).
-				const sig = spawnSync([
-					"cosign",
-					"sign-blob",
-					"--yes",
-					"--output-signature",
-					sigPath,
-					artifact,
-				]);
+				const sig = spawnSync(["cosign", ...signingSignArgs(artifact, sigPath)]);
 				if (sig.code !== 0) {
 					console.error(`verify-release: sign-blob failed for ${artifact}`);
 					console.error(tail(sig.stderr));

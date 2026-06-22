@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
 	declaredDepNames,
 	signingEnvError,
+	signingSignArgs,
 	signingVerifyArgs,
 	validateSbom,
 } from "../../scripts/verify-release.ts";
@@ -94,7 +95,34 @@ test("signingEnvError: keyless (experimental / OIDC / CI token) is OK", () => {
 	).toBeNull();
 });
 
-// ---- Phase 3: signingVerifyArgs -------------------------------------------
+// ---- Phase 3: signingSignArgs / signingVerifyArgs -------------------------
+
+test("signingSignArgs: key-based sign-blob passes --key", () => {
+	const args = signingSignArgs("bin/app", "bin/app.sig", {
+		COSIGN_KEY: "k.key",
+	});
+	expect(args).toEqual([
+		"sign-blob",
+		"--key",
+		"k.key",
+		"--yes",
+		"--output-signature",
+		"bin/app.sig",
+		"bin/app",
+	]);
+});
+
+test("signingSignArgs: keyless sign-blob writes a Sigstore bundle", () => {
+	const args = signingSignArgs("bin/app", "bin/app.sig", {});
+	expect(args).toEqual([
+		"sign-blob",
+		"--yes",
+		"--bundle",
+		"bin/app.sigstore.json",
+		"bin/app",
+	]);
+});
+
 
 test("signingVerifyArgs: key-based uses --key", () => {
 	const args = signingVerifyArgs("bin/app", "bin/app.sig", {
@@ -116,15 +144,18 @@ test("signingVerifyArgs: COSIGN_PUBLIC_KEY takes precedence for verify", () => {
 	expect(args).not.toContain("priv.key");
 });
 
-test("signingVerifyArgs: keyless uses certificate identity + issuer", () => {
+test("signingVerifyArgs: keyless uses bundle + certificate identity + issuer", () => {
 	const args = signingVerifyArgs("bin/app", "bin/app.sig", {
 		COSIGN_CERTIFICATE_IDENTITY: "ci@x",
 		COSIGN_CERTIFICATE_OIDC_ISSUER: "https://issuer",
 	});
+	expect(args).toContain("--bundle");
+	expect(args).toContain("bin/app.sigstore.json");
 	expect(args).toContain("--certificate-identity");
 	expect(args).toContain("ci@x");
 	expect(args).toContain("--certificate-oidc-issuer");
 	expect(args).toContain("https://issuer");
+	expect(args).not.toContain("--signature");
 });
 
 test("signingVerifyArgs: returns null when keyless verify inputs are absent", () => {
