@@ -87,6 +87,9 @@ Jason)`. Then the channel joins and interactivity works.
 `publish.ts` emits report-host's dashboard schema directly. `state` ∈
 `ready | warn | error | info` and drives each panel/dot color:
 
+The current publisher uses a curated in-file snapshot; it does not parse or
+adapt arbitrary workflow `{plan, findings}` output yet.
+
 ```json
 {
   "title": "claude-zig-quality — hardening progress",
