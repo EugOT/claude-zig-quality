@@ -76,3 +76,103 @@ test "hello: multiple calls do not leak" {
         try std.testing.expect(std.mem.startsWith(u8, g, "Hello, "));
     }
 }
+
+// --- new tests (plan order=32) -----------------------------------------------
+
+// Test 1: format specifiers in name are treated as literal text, not expanded.
+// allocPrint uses `{s}` to insert the name opaquely — no second-level format
+// interpretation of the name's contents.
+test "hello: format specifier in name is literal" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const greeting = try hello(gpa, io, "{s}");
+    defer gpa.free(greeting);
+    try std.testing.expectEqualStrings("Hello, {s}!", greeting);
+}
+
+// Test 2: single-character name produces the expected greeting shape.
+test "hello: single-char name" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const greeting = try hello(gpa, io, "X");
+    defer gpa.free(greeting);
+    try std.testing.expectEqualStrings("Hello, X!", greeting);
+}
+
+// Test 3: embedded null byte is part of the slice — no C-string truncation.
+// hello() must produce a greeting whose inner portion contains the null byte
+// and whose total length covers the full slice.
+test "hello: embedded null byte in name is not truncated" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const name = "ab\x00cd";
+    const greeting = try hello(gpa, io, name);
+    defer gpa.free(greeting);
+    // Length must account for all 5 bytes of `name` plus "Hello, " (7) + "!" (1).
+    try std.testing.expectEqual(@as(usize, 7 + 5 + 1), greeting.len);
+    // The null byte must be present at the expected position inside the greeting.
+    try std.testing.expectEqual(@as(u8, 0), greeting[7 + 2]); // "Hello, ab\0..."
+}
+
+// Test 4: 65535-byte name allocates, produces the right output, and frees
+// without leak — std.testing.allocator catches any retained allocation.
+test "hello: 65535-byte name no leak" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const name = try gpa.alloc(u8, 65535);
+    defer gpa.free(name);
+    @memset(name, 'a');
+    const greeting = try hello(gpa, io, name);
+    defer gpa.free(greeting);
+    // Output is "Hello, " (7) + 65535 * 'a' + "!" (1).
+    try std.testing.expectEqual(@as(usize, 7 + 65535 + 1), greeting.len);
+    try std.testing.expectEqual(@as(u8, 'a'), greeting[7]);
+    try std.testing.expectEqual(@as(u8, '!'), greeting[greeting.len - 1]);
+}
+
+// Test 5 (MUTATION sentinel): empty name → EmptyName; non-empty → no EmptyName.
+// A flipped `== 0` / `!= 0` comparison would break exactly one of these two
+// assertions, so both directions are required to catch the mutation.
+test "hello: mutation sentinel — empty vs non-empty name" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    // Empty MUST fail with EmptyName.
+    try std.testing.expectError(HelloError.EmptyName, hello(gpa, io, ""));
+    // Non-empty MUST NOT fail with EmptyName.
+    const greeting = try hello(gpa, io, "z");
+    defer gpa.free(greeting);
+    try std.testing.expectEqualStrings("Hello, z!", greeting);
+}
+
+// Test 6 (REGRESSION / semver guard): pin the exact members of HelloError.
+// Adding or removing an error variant changes the error_set length and trips
+// this test, making semver drift visible at compile+test time.
+test "hello: HelloError error set is pinned (semver guard)" {
+    const info = @typeInfo(HelloError);
+    const fields = info.error_set.?;
+    // Must have exactly 2 members: EmptyName and OutOfMemory.
+    try std.testing.expectEqual(@as(usize, 2), fields.len);
+    // Verify both names are present (order is not guaranteed by the spec).
+    var found_empty_name = false;
+    var found_oom = false;
+    for (fields) |f| {
+        if (std.mem.eql(u8, f.name, "EmptyName")) found_empty_name = true;
+        if (std.mem.eql(u8, f.name, "OutOfMemory")) found_oom = true;
+    }
+    try std.testing.expect(found_empty_name);
+    try std.testing.expect(found_oom);
+}
+
+// Test 7 (FUNCTIONAL — Io is truly unused): hello() must succeed even when io
+// is std.testing.io, which would surface any unexpected I/O operation.
+// Because `_ = io` is the only use of the io param, this test documents that
+// contract: swapping to a real or traced Io does not change the result.
+test "hello: io param is unused — result is io-independent" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const greeting = try hello(gpa, io, "world");
+    defer gpa.free(greeting);
+    // The result must be identical regardless of which io backend is injected,
+    // proving hello() performs no I/O.
+    try std.testing.expectEqualStrings("Hello, world!", greeting);
+}

@@ -169,7 +169,7 @@ fn printErrFmt(io: std.Io, comptime fmt: []const u8, args: anytype) !void {
     try w.flush();
 }
 
-// ── classifyDecl tests ───────────────────────────────────────────────────────
+// classifyDecl tests
 
 test "classifyDecl: pub fn yields name and kind=fn" {
     const alloc = std.testing.allocator;
@@ -315,7 +315,7 @@ test "classifyDecl: multiple mixed decls in one parse" {
     try std.testing.expectEqual(@as(usize, 3), pub_count);
 }
 
-// ── hasPubBefore tests ───────────────────────────────────────────────────────
+// hasPubBefore tests
 
 test "hasPubBefore: token index 0 returns false (underflow guard)" {
     // Construct a minimal token slice with a single keyword_fn at index 0.
@@ -376,7 +376,7 @@ test "hasPubBefore: no pub before private fn returns false" {
     try std.testing.expect(!hasPubBefore(token_tags, main_tok));
 }
 
-// ── findFnNameToken tests ─────────────────────────────────────────────────────
+// findFnNameToken tests
 
 test "findFnNameToken: returns identifier for a simple pub fn" {
     const alloc = std.testing.allocator;

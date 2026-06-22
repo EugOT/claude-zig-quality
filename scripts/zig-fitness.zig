@@ -504,7 +504,7 @@ test "escapeJsonString covers every control-character class" {
     );
 }
 
-// ─── hasInferredErrorSet ────────────────────────────────────────────────────
+// hasInferredErrorSet
 
 test "hasInferredErrorSet: ') void' suffix is inferred" {
     // The simplest inferred pattern: close-paren, space, `!`, then return type.
@@ -562,7 +562,7 @@ test "hasInferredErrorSet: '!' inside string literal is a known false-positive (
     try std.testing.expect(!hasInferredErrorSet("pub fn nofp(x: u8) void { _ = x; }"));
 }
 
-// ─── isPubFn ───────────────────────────────────────────────────────────────
+// isPubFn
 
 test "isPubFn: pub immediately before fn returns true" {
     // Parse a real AST so we have genuine token_tags and main_token values.
@@ -602,7 +602,7 @@ test "isPubFn: doc-comment between pub and fn still returns true" {
     try std.testing.expect(isPubFn(ast.tokens.items(.tag), main_tok));
 }
 
-// ─── containsAny ──────────────────────────────────────────────────────────
+// containsAny
 
 test "containsAny: empty needles slice always returns false" {
     // The for loop never executes, so the result is always false regardless
@@ -620,7 +620,7 @@ test "containsAny: first-match short-circuits (OR semantics)" {
     try std.testing.expect(!containsAny("hello world", &.{ "foo", "bar" }));
 }
 
-// ─── lineOf ──────────────────────────────────────────────────────────────
+// lineOf
 
 test "lineOf: offset 0 is always line 1" {
     try std.testing.expectEqual(@as(usize, 1), lineOf("anything", 0));
@@ -636,7 +636,7 @@ test "lineOf: offset after two newlines returns line 3" {
     try std.testing.expectEqual(@as(usize, 2), lineOf(src, 2));
 }
 
-// ─── escapeJsonString (extended) ──────────────────────────────────────────
+// escapeJsonString (extended)
 
 test "escapeJsonString: 0x0B (vertical tab) goes through \\uXXXX arm" {
     // The switch has explicit cases for \b (0x08) and \f (0x0C) but NOT for
@@ -664,7 +664,7 @@ test "escapeJsonString: mutation sentinel — round-trip must not return input u
     try std.testing.expect(std.mem.indexOf(u8, escaped, "\\\"") != null);
 }
 
-// ─── scanFile (functional, via tmpDir seam) ───────────────────────────────
+// scanFile (functional, via tmpDir seam)
 //
 // SEAM NOTE: scanFile calls `std.Io.Dir.cwd().readFileAlloc(io, path, ...)`,
 // where `path` is treated as relative to the process cwd. `std.testing.tmpDir`
@@ -714,7 +714,10 @@ test "scanFile: 0 violations for pub fn with Allocator param that allocates" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const source = "pub const MyError = error{Fail}; pub fn goodAlloc(alloc: std.mem.Allocator) MyError![]u8 { return alloc.alloc(u8, 8) catch MyError.Fail; }\n";
+    const source =
+        "pub const MyError = error{Fail}; " ++
+        "pub fn goodAlloc(alloc: std.mem.Allocator) MyError![]u8 { " ++
+        "return alloc.alloc(u8, 8) catch MyError.Fail; }\n";
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "good.zig", .data = source });
 
     const rel_path = try std.fs.path.join(gpa, &.{ ".zig-cache", "tmp", &tmp.sub_path, "good.zig" });
@@ -758,7 +761,10 @@ test "scanFile: 0 io violations for pub fn with : std.Io param" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const source = "pub const IoError = error{Fail}; pub fn goodIo(io: std.Io) IoError!void { const f = std.Io.File.stdout(); _ = io; _ = f; }\n";
+    const source =
+        "pub const IoError = error{Fail}; " ++
+        "pub fn goodIo(io: std.Io) IoError!void { " ++
+        "const f = std.Io.File.stdout(); _ = io; _ = f; }\n";
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "goodio.zig", .data = source });
 
     const rel_path = try std.fs.path.join(gpa, &.{ ".zig-cache", "tmp", &tmp.sub_path, "goodio.zig" });
