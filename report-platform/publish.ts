@@ -59,7 +59,10 @@ if (slotIdx !== -1 && slotValue !== "current") {
 }
 
 // ---- The live status of the hardening effort (edit as work progresses) ----
-// This IS the live progress tracker. `state` colors each item.
+// This hand-maintained snapshot is the live progress tracker. It is already
+// shaped as report-host data, but it is not a generic workflow-output adapter;
+// a future mapper can translate {plan, findings} JSON into these arrays.
+// `state` colors each item.
 type State = "ready" | "warn" | "error" | "info";
 type Task = { title: string; note: string; state: State };
 
@@ -169,7 +172,12 @@ const report = {
 	links,
 };
 
-const json = `${JSON.stringify(report, null, 2)}\n`;
+const serialized = JSON.stringify(report, null, 2);
+if (!serialized) {
+	console.error("publish: JSON serialization produced no output");
+	process.exit(1);
+}
+const json = `${serialized}\n`;
 
 if (dryRun) {
 	process.stdout.write(json);
@@ -201,26 +209,28 @@ function ssh(cmd: string) {
 if (!slotCurrent) {
 	const mk = ssh(`mkdir -p ${REMOTE_REPORTS_DIR}`);
 	if (mk.status !== 0) {
-		console.error("publish: cannot create remote reports dir:", mk.stderr);
+		console.error(
+			`publish: cannot create remote reports dir ${HOST}:${REMOTE_REPORTS_DIR} ` +
+				`(status ${mk.status ?? "unknown"}):`,
+			mk.stderr || "(no stderr)",
+		);
 		process.exit(1);
 	}
 }
 
 // Atomic write: pipe JSON to a temp file via ssh, then rename.
+const writeCmd = `cat > ${tmpPath} && mv -f ${tmpPath} ${remotePath}`;
 const write = spawnSync(
 	"ssh",
-	[
-		"-o",
-		"ConnectTimeout=10",
-		"-o",
-		"BatchMode=yes",
-		HOST,
-		`cat > ${tmpPath} && mv -f ${tmpPath} ${remotePath}`,
-	],
+	["-o", "ConnectTimeout=10", "-o", "BatchMode=yes", HOST, writeCmd],
 	{ input: json, encoding: "utf8" },
 );
 if (write.status !== 0) {
-	console.error("publish: remote write failed:", write.stderr);
+	console.error(
+		`publish: remote write failed for ${HOST}:${remotePath} ` +
+			`via ${JSON.stringify(writeCmd)} (status ${write.status ?? "unknown"}):`,
+		write.stderr || "(no stderr)",
+	);
 	process.exit(1);
 }
 
