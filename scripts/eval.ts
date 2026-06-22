@@ -35,9 +35,9 @@ async function finish(code: number, startedAt: number): Promise<never> {
 	process.exit(code);
 }
 
-type CheckFailure = { file: string; reason: string };
+export type CheckFailure = { file: string; reason: string };
 
-async function validateExpectJson(
+export async function validateExpectJson(
 	absPath: string,
 ): Promise<CheckFailure | null> {
 	try {
@@ -49,7 +49,7 @@ async function validateExpectJson(
 	}
 }
 
-async function checkStructure(root: string): Promise<CheckFailure[]> {
+export async function checkStructure(root: string): Promise<CheckFailure[]> {
 	const failures: CheckFailure[] = [];
 	const domainsRoot = resolve(root, "tests/evals/domains");
 	const thresholdsPath = resolve(root, "tests/evals/thresholds.json");
@@ -161,7 +161,7 @@ async function checkStructure(root: string): Promise<CheckFailure[]> {
 	return failures;
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
 	const startedAt = Date.now();
 	const root = repoRoot();
 	const check = process.argv.includes("--check");
@@ -182,4 +182,4 @@ async function main(): Promise<void> {
 	await finish(1, startedAt);
 }
 
-await main();
+if (import.meta.main) await main();

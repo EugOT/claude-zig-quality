@@ -31,16 +31,10 @@ import { repoRoot } from "./lib/runtime.ts";
 import { zigExePath, zlsLaunchArgv, zlsMessage } from "./lib/zig.ts";
 import { collectZlsDiagnostics } from "./lib/zls.ts";
 
-const TIMEOUT_MS = Number(process.env.ZLS_TIMEOUT_MS ?? "60000");
-if (!Number.isFinite(TIMEOUT_MS) || TIMEOUT_MS <= 0) {
-	console.error(
-		`zls-check: invalid ZLS_TIMEOUT_MS=${JSON.stringify(process.env.ZLS_TIMEOUT_MS)}; ` +
-			"must be a positive number of milliseconds.",
-	);
-	process.exit(1);
-}
-
-async function resolveFiles(root: string, argv: string[]): Promise<string[]> {
+export async function resolveFiles(
+	root: string,
+	argv: string[],
+): Promise<string[]> {
 	if (argv.length > 0) {
 		return argv.map((p) => resolve(root, p));
 	}
@@ -55,7 +49,16 @@ async function resolveFiles(root: string, argv: string[]): Promise<string[]> {
 	return files;
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
+	const timeoutMs = Number(process.env.ZLS_TIMEOUT_MS ?? "60000");
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+		console.error(
+			`zls-check: invalid ZLS_TIMEOUT_MS=${JSON.stringify(process.env.ZLS_TIMEOUT_MS)}; ` +
+				"must be a positive number of milliseconds.",
+		);
+		process.exit(1);
+	}
+
 	const root = repoRoot();
 	const launchArgv = zlsLaunchArgv();
 
@@ -84,7 +87,7 @@ async function main(): Promise<void> {
 	const result = await collectZlsDiagnostics({
 		launchArgv,
 		files,
-		timeoutMs: TIMEOUT_MS,
+		timeoutMs,
 		zigExePath: zigPath,
 		rootUri: pathToFileURL(`${root}/`).href,
 	});
@@ -145,4 +148,4 @@ async function main(): Promise<void> {
 	process.exit(0);
 }
 
-await main();
+if (import.meta.main) await main();

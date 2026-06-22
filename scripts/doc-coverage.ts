@@ -15,11 +15,14 @@
 import { resolve } from "node:path";
 import { Glob } from "bun";
 import { repoRoot } from "./lib/runtime.ts";
-import { zig } from "./lib/zig.ts";
+import { zig as realZig } from "./lib/zig.ts";
 
 const TOOL = "scripts/zig-doc-coverage.zig";
 
-async function resolveFiles(root: string, argv: string[]): Promise<string[]> {
+export async function resolveFiles(
+	root: string,
+	argv: string[],
+): Promise<string[]> {
 	if (argv.length > 0) return argv.map((p) => resolve(root, p));
 	const glob = new Glob("src/**/*.zig");
 	const files: string[] = [];
@@ -34,7 +37,9 @@ async function resolveFiles(root: string, argv: string[]): Promise<string[]> {
 	return files;
 }
 
-async function main(): Promise<void> {
+export async function main(
+	zig: typeof realZig = realZig,
+): Promise<void> {
 	const root = repoRoot();
 	const files = await resolveFiles(root, process.argv.slice(2));
 	if (files.length === 0) {
@@ -64,4 +69,4 @@ async function main(): Promise<void> {
 	process.exit(0);
 }
 
-await main();
+if (import.meta.main) await main();

@@ -18,16 +18,16 @@ import { appendJsonl, repoRoot, tail } from "./lib/runtime.ts";
  *   1 — real failure (fuzz crash, build/test failure)
  */
 import {
-	hasBuildStep,
-	runFuzz,
-	zig,
+	hasBuildStep as realHasBuildStep,
+	runFuzz as realRunFuzz,
+	zig as realZig,
 	zigFuzzSkipMessage,
-	zigSupportsFuzz,
+	zigSupportsFuzz as realZigSupportsFuzz,
 } from "./lib/zig.ts";
 
 const TIER = "pr" as const;
 
-const TARGETS: ReadonlyArray<string> = [
+export const TARGETS: ReadonlyArray<string> = [
 	"x86_64-linux-musl",
 	"aarch64-linux-gnu",
 	"aarch64-macos",
@@ -35,14 +35,45 @@ const TARGETS: ReadonlyArray<string> = [
 	"wasm32-wasi",
 ];
 
-const SAFETY_MODES: ReadonlyArray<string> = [
+export const SAFETY_MODES: ReadonlyArray<string> = [
 	"Debug",
 	"ReleaseSafe",
 	"ReleaseFast",
 	"ReleaseSmall",
 ];
 
-const FUZZ_TIMEOUT_MS = 300_000;
+export const FUZZ_TIMEOUT_MS = 300_000;
+
+/**
+ * Injection seam for verify-pr's main(). Defaults are the real
+ * implementations; tests pass stubs to exercise the cross-target fail-fast,
+ * fuzz-skip, and timeout-verdict branches in-process.
+ */
+export type PrDeps = {
+	zig: typeof realZig;
+	hasBuildStep: typeof realHasBuildStep;
+	zigSupportsFuzz: typeof realZigSupportsFuzz;
+	runFuzz: typeof realRunFuzz;
+	/** Spawn a child synchronously, inheriting stdio; returns its exit code. */
+	spawnInherit: (cmd: string[], cwd: string) => number | null;
+};
+
+function defaultSpawnInherit(cmd: string[], cwd: string): number | null {
+	return Bun.spawnSync(cmd, {
+		cwd,
+		stdout: "inherit",
+		stderr: "inherit",
+		stdin: "ignore",
+	}).exitCode;
+}
+
+const defaultPrDeps: PrDeps = {
+	zig: realZig,
+	hasBuildStep: realHasBuildStep,
+	zigSupportsFuzz: realZigSupportsFuzz,
+	runFuzz: realRunFuzz,
+	spawnInherit: defaultSpawnInherit,
+};
 
 async function finish(code: number, startedAt: number): Promise<never> {
 	const durationMs = Date.now() - startedAt;
@@ -55,29 +86,34 @@ async function finish(code: number, startedAt: number): Promise<never> {
 	process.exit(code);
 }
 
-async function runFuzzBounded(
+/**
+ * Run the fuzz step under the fixed 300s budget. `runFuzz` is injected so
+ * tests can assert the FUZZ_TIMEOUT_MS wiring with a spy.
+ */
+export async function runFuzzBounded(
 	limit: string,
+	runFuzz: typeof realRunFuzz = realRunFuzz,
 ): Promise<"pass" | "timeout" | number> {
 	return runFuzz({ limit, timeoutMs: FUZZ_TIMEOUT_MS });
 }
 
-async function main(): Promise<void> {
+export async function main(deps: PrDeps = defaultPrDeps): Promise<void> {
 	const startedAt = Date.now();
 	const root = repoRoot();
 
 	console.log("== verify-pr -> verify-commit ==");
-	const commit = Bun.spawnSync(["bun", "scripts/verify-commit.ts"], {
-		cwd: root,
-		stdout: "inherit",
-		stderr: "inherit",
-		stdin: "ignore",
-	});
-	if (commit.exitCode !== 0) await finish(commit.exitCode ?? 1, startedAt);
+	const commit = deps.spawnInherit(["bun", "scripts/verify-commit.ts"], root);
+	if (commit !== 0) await finish(commit ?? 1, startedAt);
 
 	console.log("== Cross-target build matrix ==");
 	for (const target of TARGETS) {
 		console.log(`--- ${target}`);
-		const build = zig(["build", `-Dtarget=${target}`, "--summary", "failures"]);
+		const build = deps.zig([
+			"build",
+			`-Dtarget=${target}`,
+			"--summary",
+			"failures",
+		]);
 		process.stdout.write(build.stdout);
 		process.stderr.write(build.stderr);
 		if (build.code !== 0) {
@@ -92,7 +128,7 @@ async function main(): Promise<void> {
 	console.log("== Safety-mode rotation ==");
 	for (const mode of SAFETY_MODES) {
 		console.log(`--- ${mode}`);
-		const test = zig([
+		const test = deps.zig([
 			"build",
 			"test",
 			`-Doptimize=${mode}`,
@@ -113,32 +149,22 @@ async function main(): Promise<void> {
 	}
 
 	console.log("== ZLS semantic diagnostics ==");
-	const zls = Bun.spawnSync(["bun", "scripts/zls-check.ts"], {
-		cwd: root,
-		stdout: "inherit",
-		stderr: "inherit",
-		stdin: "ignore",
-	});
-	if (zls.exitCode !== 0) {
+	const zls = deps.spawnInherit(["bun", "scripts/zls-check.ts"], root);
+	if (zls !== 0) {
 		console.error("verify-pr: ZLS semantic gate failed");
-		await finish(zls.exitCode ?? 1, startedAt);
+		await finish(zls ?? 1, startedAt);
 	}
 
 	console.log("== Doc coverage (every pub decl documented, §10) ==");
-	const docCov = Bun.spawnSync(["bun", "scripts/doc-coverage.ts"], {
-		cwd: root,
-		stdout: "inherit",
-		stderr: "inherit",
-		stdin: "ignore",
-	});
-	if (docCov.exitCode !== 0) {
+	const docCov = deps.spawnInherit(["bun", "scripts/doc-coverage.ts"], root);
+	if (docCov !== 0) {
 		console.error("verify-pr: doc-coverage gate failed");
-		await finish(docCov.exitCode ?? 1, startedAt);
+		await finish(docCov ?? 1, startedAt);
 	}
 
-	if (hasBuildStep("docs")) {
+	if (deps.hasBuildStep("docs")) {
 		console.log("== Generated docs ==");
-		const docs = zig(["build", "docs", "--summary", "failures"]);
+		const docs = deps.zig(["build", "docs", "--summary", "failures"]);
 		process.stdout.write(docs.stdout);
 		process.stderr.write(docs.stderr);
 		if (docs.code !== 0) {
@@ -151,11 +177,11 @@ async function main(): Promise<void> {
 		);
 	}
 
-	if (hasBuildStep("fuzz")) {
-		if (zigSupportsFuzz()) {
+	if (deps.hasBuildStep("fuzz")) {
+		if (deps.zigSupportsFuzz()) {
 			const limit = process.env.PR_FUZZ_LIMIT ?? "100K";
 			console.log(`== Bounded fuzz (300s, --fuzz=${limit}) ==`);
-			const verdict = await runFuzzBounded(limit);
+			const verdict = await runFuzzBounded(limit, deps.runFuzz);
 			if (verdict === "timeout") {
 				console.log("(fuzz budget elapsed; no crashes)");
 			} else if (verdict === "pass") {
@@ -178,4 +204,4 @@ async function main(): Promise<void> {
 	await finish(0, startedAt);
 }
 
-await main();
+if (import.meta.main) await main();

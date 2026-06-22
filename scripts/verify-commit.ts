@@ -13,9 +13,44 @@
  */
 import { resolve } from "node:path";
 import { appendJsonl, repoRoot, tail } from "./lib/runtime.ts";
-import { hasBuildStep, zig } from "./lib/zig.ts";
+import { hasBuildStep as realHasBuildStep, zig as realZig } from "./lib/zig.ts";
 
 const TIER = "commit" as const;
+
+/**
+ * Injection seam for verify-commit's main(). Defaults are the real
+ * implementations; tests pass stubs to exercise the lint-skip,
+ * api-check-skip, and exit-code-propagation branches in-process without
+ * spawning a real toolchain.
+ */
+export type CommitDeps = {
+	zig: typeof realZig;
+	hasBuildStep: typeof realHasBuildStep;
+	/** Spawn a child synchronously, inheriting stdio; returns its exit code. */
+	spawnInherit: (cmd: string[], cwd: string) => number | null;
+	/** True when a repo-relative path exists. */
+	fileExists: (relPath: string) => Promise<boolean>;
+};
+
+function defaultSpawnInherit(cmd: string[], cwd: string): number | null {
+	return Bun.spawnSync(cmd, {
+		cwd,
+		stdout: "inherit",
+		stderr: "inherit",
+		stdin: "ignore",
+	}).exitCode;
+}
+
+function defaultFileExists(relPath: string): Promise<boolean> {
+	return Bun.file(resolve(repoRoot(), relPath)).exists();
+}
+
+const defaultCommitDeps: CommitDeps = {
+	zig: realZig,
+	hasBuildStep: realHasBuildStep,
+	spawnInherit: defaultSpawnInherit,
+	fileExists: defaultFileExists,
+};
 
 async function finish(code: number, startedAt: number): Promise<never> {
 	const durationMs = Date.now() - startedAt;
@@ -28,21 +63,16 @@ async function finish(code: number, startedAt: number): Promise<never> {
 	process.exit(code);
 }
 
-async function main(): Promise<void> {
+export async function main(deps: CommitDeps = defaultCommitDeps): Promise<void> {
 	const startedAt = Date.now();
 	const root = repoRoot();
 
 	console.log("== verify-commit -> verify-fast ==");
-	const fast = Bun.spawnSync(["bun", "scripts/verify-fast.ts"], {
-		cwd: root,
-		stdout: "inherit",
-		stderr: "inherit",
-		stdin: "ignore",
-	});
-	if (fast.exitCode !== 0) await finish(fast.exitCode ?? 1, startedAt);
+	const fast = deps.spawnInherit(["bun", "scripts/verify-fast.ts"], root);
+	if (fast !== 0) await finish(fast ?? 1, startedAt);
 
 	console.log("== zig build test (Debug, --test-timeout 30s) ==");
-	const test = zig([
+	const test = deps.zig([
 		"build",
 		"test",
 		"--summary",
@@ -64,9 +94,9 @@ async function main(): Promise<void> {
 	// fork (PATH-independent, unlike verify-fast's optional PATH probe). Guarded
 	// by hasBuildStep so an adopter who opted out of the ziglint dependency —
 	// removing the `lint` step — is not broken by this gate.
-	if (hasBuildStep("lint")) {
+	if (deps.hasBuildStep("lint")) {
 		console.log("== zig build lint (EugOT/ziglint, pinned) ==");
-		const lint = zig(["build", "lint", "--summary", "failures"]);
+		const lint = deps.zig(["build", "lint", "--summary", "failures"]);
 		process.stdout.write(lint.stdout);
 		process.stderr.write(lint.stderr);
 		if (lint.code !== 0) {
@@ -82,16 +112,10 @@ async function main(): Promise<void> {
 		);
 	}
 
-	const libZig = Bun.file(resolve(root, "src/lib.zig"));
-	if (await libZig.exists()) {
+	if (await deps.fileExists("src/lib.zig")) {
 		console.log("== check-public-api ==");
-		const api = Bun.spawnSync(["bun", "scripts/check-public-api.ts"], {
-			cwd: root,
-			stdout: "inherit",
-			stderr: "inherit",
-			stdin: "ignore",
-		});
-		if (api.exitCode !== 0) await finish(api.exitCode ?? 1, startedAt);
+		const api = deps.spawnInherit(["bun", "scripts/check-public-api.ts"], root);
+		if (api !== 0) await finish(api ?? 1, startedAt);
 	} else {
 		console.log("(no src/lib.zig — skipping public API surface check)");
 	}
@@ -100,4 +124,4 @@ async function main(): Promise<void> {
 	await finish(0, startedAt);
 }
 
-await main();
+if (import.meta.main) await main();

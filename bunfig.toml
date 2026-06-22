@@ -1,0 +1,18 @@
+# Bun test + coverage configuration for claude-zig-quality.
+#
+# Coverage is the measurable target of the test-coverage drive (see the
+# 322-test plan). Thresholds start at the current baseline and ratchet up as
+# each task-group lands; CI fails the per-PR tier if coverage regresses.
+[test]
+coverage = true
+coverageReporter = ["text", "lcov"]
+coverageDir = "coverage"
+# Only count our own source as coverable (not the test files themselves).
+coverageSkipTestFiles = true
+
+# Ratchet: raise these toward 100 as task-groups T3..T12 land. Set to the
+# measured baseline now so the gate is real but does not block the in-progress
+# drive. (Baseline 2026-06-22: ~31% lines / ~42% funcs across tested files.)
+[test.coverageThreshold]
+line = 0.30
+function = 0.40
