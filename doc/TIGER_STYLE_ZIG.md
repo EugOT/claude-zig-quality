@@ -325,6 +325,8 @@ silent on questions where reasonable projects differ:
 | Fuzz corpus coverage                    | `scripts/verify-pr.ts`            | Per-PR      |
 | Reproducible release build (SOURCE_DATE_EPOCH + Mach-O normalize) | `scripts/verify-release.ts` | Per-release |
 | SBOM generation                         | `scripts/emit-sbom.zig`           | Per-release |
+| SBOM validation (CycloneDX + dep coverage) | `scripts/verify-release.ts`    | Per-release |
+| Signing env pre-flight + signature verify | `scripts/verify-release.ts`     | Per-release |
 
 When a rule fails, the verifier reports the specific fitness rule id,
 the file and line, and the canonical fix. The `zig-fixer` subagent
