@@ -14,7 +14,7 @@ import { appendJsonl, spawnSync } from "../../scripts/lib/runtime.ts";
  */
 import { zigVersion } from "../../scripts/lib/zig.ts";
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
 	const version = zigVersion() || "unresolved";
 	const jjLog = spawnSync(["jj", "log", "-r", "@-..@", "--no-graph"]);
 	const gitBranch = spawnSync(["git", "branch", "--show-current"]);
@@ -61,11 +61,13 @@ async function main(): Promise<void> {
 	process.exit(0);
 }
 
-main().catch(async (err) => {
-	await appendJsonl(".claude/logs/session-start.jsonl", {
-		event: "session-start-error",
-		error: String(err),
+if (import.meta.main) {
+	main().catch(async (err) => {
+		await appendJsonl(".claude/logs/session-start.jsonl", {
+			event: "session-start-error",
+			error: String(err),
+		});
+		console.error(`session-start.ts: ${String(err)}`);
+		process.exit(1);
 	});
-	console.error(`session-start.ts: ${String(err)}`);
-	process.exit(1);
-});
+}

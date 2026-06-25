@@ -13,6 +13,7 @@ import {
 	appendJsonl,
 	readStdinJson,
 	repoRoot,
+	type SpawnResult,
 	spawnSync,
 	tail,
 } from "../../scripts/lib/runtime.ts";
@@ -21,7 +22,15 @@ type StopPayload = {
 	stop_hook_active?: boolean;
 };
 
-async function main(): Promise<void> {
+/** Run the Definition-of-Done gate; injectable so tests can stub the verdict. */
+export type RunDodGate = () => SpawnResult;
+
+const defaultRunDodGate: RunDodGate = () =>
+	spawnSync(["bun", "scripts/verify-commit.ts"], { cwd: repoRoot() });
+
+export async function main(
+	runDodGate: RunDodGate = defaultRunDodGate,
+): Promise<void> {
 	const payload = await readStdinJson<StopPayload>();
 	if (payload.stop_hook_active === true) {
 		// Second-pass stop: allow to prevent infinite loops (§0.9 rationale).
@@ -31,9 +40,7 @@ async function main(): Promise<void> {
 		process.exit(0);
 	}
 
-	const r = spawnSync(["bun", "scripts/verify-commit.ts"], {
-		cwd: repoRoot(),
-	});
+	const r = runDodGate();
 	await appendJsonl(".claude/logs/stop-dod.jsonl", {
 		event: r.code === 0 ? "pass" : "fail",
 		code: r.code,
@@ -51,11 +58,13 @@ async function main(): Promise<void> {
 	process.exit(0);
 }
 
-main().catch(async (err) => {
-	await appendJsonl(".claude/logs/stop-dod.jsonl", {
-		event: "error",
-		error: String(err),
+if (import.meta.main) {
+	main().catch(async (err) => {
+		await appendJsonl(".claude/logs/stop-dod.jsonl", {
+			event: "error",
+			error: String(err),
+		});
+		console.error(`stop-dod: ${String(err)}`);
+		process.exit(1);
 	});
-	console.error(`stop-dod: ${String(err)}`);
-	process.exit(1);
-});
+}

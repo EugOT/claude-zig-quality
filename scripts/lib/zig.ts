@@ -215,11 +215,17 @@ export function hasBuildStep(step: string): boolean {
  * green gate on macOS must degrade explicitly, never silently. Set
  * ZIG_QM_FORCE_FUZZ=1 to try anyway.
  */
-export function zigSupportsFuzz(): boolean {
-	if (process.env.ZIG_QM_FORCE_FUZZ === "1") return true;
-	const os = process.platform;
-	const v = zigVersion();
-	if (os === "darwin" && v === TARGET_VERSION) return false;
+export type ZigSupportsFuzzDeps = {
+	platform?: string;
+	version?: string;
+	forceFuzz?: string;
+};
+
+export function zigSupportsFuzz(deps: ZigSupportsFuzzDeps = {}): boolean {
+	if ((deps.forceFuzz ?? process.env.ZIG_QM_FORCE_FUZZ) === "1") return true;
+	const os = deps.platform ?? process.platform;
+	const v = deps.version ?? zigVersion();
+	if (os === "darwin" && v.split(/[+-]/)[0] === TARGET_VERSION) return false;
 	return true;
 }
 

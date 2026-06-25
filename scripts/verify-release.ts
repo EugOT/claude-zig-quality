@@ -493,6 +493,22 @@ async function runFuzzBounded(
 	return runFuzz({ limit, timeoutMs: budgetSeconds * 1000 });
 }
 
+/**
+ * Compares two artifact hashes from successive clean rebuilds.
+ * Returns "empty" only when both hashes are empty, "match" when both are
+ * identical, or "mismatch" otherwise. Exported for one-sided rebuild
+ * regression tests.
+ */
+export function compareHashes(
+	h1: string,
+	h2: string,
+): "match" | "mismatch" | "empty" {
+	if (h1.length === 0 && h2.length === 0) return "empty";
+	if (h1.length === 0 || h2.length === 0) return "mismatch";
+	if (h1 === h2) return "match";
+	return "mismatch";
+}
+
 async function main(): Promise<void> {
 	const startedAt = Date.now();
 	const root = repoRoot();
@@ -576,7 +592,7 @@ async function main(): Promise<void> {
 	const sbomScript = resolve(root, "scripts/emit-sbom.zig");
 	let sbomWritten = false;
 	if (await Bun.file(sbomScript).exists()) {
-		const sbom = zig(["run", "scripts/emit-sbom.zig", "--", "build.zig.zon"]);
+		const sbom = zig(["run", sbomScript, "--", "build.zig.zon"]);
 		if (sbom.code === 0) {
 			await Bun.write(sbomPath, sbom.stdout);
 			console.log("(wrote sbom.cdx.json)");

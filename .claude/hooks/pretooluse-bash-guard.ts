@@ -20,10 +20,13 @@ type PreToolPayload = {
 	tool_input?: { command?: string };
 };
 
-const DENY_PATTERNS: RegExp[] = [
-	/\brm\s+-rf?\s+\//,
-	/\bgit\s+push\s+(--force|-f)\b/,
-	/\bgit\s+push\s+--force-with-lease\s+origin\s+main\b/,
+export const DENY_PATTERNS: RegExp[] = [
+	// Interspersed flags (e.g. `rm -rf --no-preserve-root /`) must not slip the
+	// guard — the original `\s+/` required the slash immediately after -rf, so
+	// any flag between -rf and the path defeated it (security finding, 2026-06).
+	/\brm\s+-rf?(\s+--?\S+)*\s+([/.]|\.\.?\/)/,
+	/\bgit\s+push\s+(--force(?!-with-lease)|-f)\b/,
+	/\bgit\s+push\b.*--force-with-lease\b/,
 	/\bgit\s+tag\b/,
 	/\bcosign\b/,
 	/\bchezmoi\s+purge\b/,
@@ -33,13 +36,13 @@ const DENY_PATTERNS: RegExp[] = [
 
 // Known MCP tool prefixes that return potentially untrusted text.
 // Warn-only: log to .claude/logs/mcp-scan.jsonl; never block in v0.
-const UNTRUSTED_INSTR_MARKERS: RegExp[] = [
+export const UNTRUSTED_INSTR_MARKERS: RegExp[] = [
 	/ignore\s+previous\s+instructions/i,
 	/system\s+note\s*:/i,
 	/\{\{\s*secret/i,
 ];
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
 	const payload = await readStdinJson<PreToolPayload>();
 	const toolName = payload.tool_name ?? "";
 	const cmd = payload.tool_input?.command ?? "";
@@ -90,11 +93,13 @@ async function main(): Promise<void> {
 	return;
 }
 
-main().catch(async (err) => {
-	await appendJsonl(".claude/logs/bash-guard.jsonl", {
-		event: "error",
-		error: String(err),
+if (import.meta.main) {
+	main().catch(async (err) => {
+		await appendJsonl(".claude/logs/bash-guard.jsonl", {
+			event: "error",
+			error: String(err),
+		});
+		console.error(`pretooluse-bash-guard: ${String(err)}`);
+		process.exit(1);
 	});
-	console.error(`pretooluse-bash-guard: ${String(err)}`);
-	process.exit(1);
-});
+}

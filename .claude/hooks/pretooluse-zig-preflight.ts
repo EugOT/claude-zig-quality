@@ -15,7 +15,7 @@ import {
 	readStdinJson,
 	tail,
 } from "../../scripts/lib/runtime.ts";
-import { zig } from "../../scripts/lib/zig.ts";
+import { zig as realZig } from "../../scripts/lib/zig.ts";
 
 type PreToolPayload = {
 	tool_name?: string;
@@ -27,7 +27,7 @@ type PreToolPayload = {
 	};
 };
 
-async function main(): Promise<void> {
+export async function main(zig: typeof realZig = realZig): Promise<void> {
 	const payload = await readStdinJson<PreToolPayload>();
 	const tool = payload.tool_name ?? "";
 	const file = payload.tool_input?.file_path ?? "";
@@ -93,11 +93,13 @@ async function main(): Promise<void> {
 	return;
 }
 
-main().catch(async (err) => {
-	await appendJsonl(".claude/logs/zig-preflight.jsonl", {
-		event: "error",
-		error: String(err),
+if (import.meta.main) {
+	main().catch(async (err) => {
+		await appendJsonl(".claude/logs/zig-preflight.jsonl", {
+			event: "error",
+			error: String(err),
+		});
+		console.error(`pretooluse-zig-preflight: ${String(err)}`);
+		process.exit(1);
 	});
-	console.error(`pretooluse-zig-preflight: ${String(err)}`);
-	process.exit(1);
-});
+}

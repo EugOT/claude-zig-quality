@@ -107,6 +107,7 @@ pub fn build(b: *std.Build) void {
     // in CI. `test-scripts` compiles each as a test binary; it is folded into
     // the umbrella `test` step so `zig build test` covers them too.
     const script_tools: []const []const u8 = &.{
+        "scripts/zig-api-surface.zig",
         "scripts/zig-doc-coverage.zig",
         "scripts/zig-fitness.zig",
         "scripts/emit-sbom.zig",

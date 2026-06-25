@@ -17,8 +17,18 @@
  * These tests cover the deterministic guard logic. The "step present /
  * absent" happy path needs a real pinned toolchain and is exercised by
  * the integration gate (`verify-commit`), not here.
+ *
+ * Extended scenarios (plan order=8):
+ *   4. regex matches a step with trailing whitespace/tab in synthetic listing
+ *   5. returns false for a step absent from the listing
+ *   6. THROWS (not false) when `zig build -l` exits non-zero (invisible-gate
+ *      regression: a build error must not be silently read as "step absent")
+ *   7. boundary: 64-char step name accepted; 65-char rejected
  */
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { chmodSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	hasBuildStep,
 	zigIsPinned,
@@ -92,4 +102,88 @@ test("zigResolution returns a known strategy and zigIsPinned agrees", () => {
 	const r = zigResolution();
 	expect(["env", "mise", "bare-path"]).toContain(r);
 	expect(zigIsPinned()).toBe(r !== "bare-path");
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 4 — regex matches step with trailing whitespace / tab in listing
+// Scenario 5 — returns false for a step absent from the listing
+// Scenario 6 — THROWS when `zig build -l` exits non-zero
+// Scenario 7 — 64-char step name accepted; 65-char step name rejected
+// ---------------------------------------------------------------------------
+
+/**
+ * Helper: write a tiny shell script to `path`, make it executable, and
+ * set $ZIG to point at it so `hasBuildStep` uses the fake binary instead
+ * of the real Zig toolchain.
+ */
+function makeFakeZig(path: string, body: string): void {
+	writeFileSync(path, `#!/bin/sh\n${body}\n`);
+	chmodSync(path, 0o755);
+}
+
+describe("hasBuildStep with synthetic `zig build -l` listing", () => {
+	// These tests need a pinned-looking ZIG so the §0.7 guard passes.
+	// We point $ZIG at a tiny shell script that emits a known listing.
+
+	const fakeZigBase = join(tmpdir(), "claude-zig-quality-fake-zig");
+
+	test("scenario 4: matches a step whose listing line has trailing whitespace/tab", () => {
+		// The regex is `^[\t ]*<step>(?:\s|$)` in multiline mode — it must
+		// accept both trailing spaces and trailing tabs after the step name.
+		const scriptPath = `${fakeZigBase}-listing`;
+		// Emit a `zig build -l`-style block with mixed trailing whitespace.
+		makeFakeZig(
+			scriptPath,
+			// Two lines: one with trailing spaces, one with trailing tab.
+			'echo "  lint  \n  fuzz\t"',
+		);
+		process.env.ZIG = scriptPath;
+		expect(hasBuildStep("lint")).toBe(true);
+		expect(hasBuildStep("fuzz")).toBe(true);
+	});
+
+	test("scenario 5: returns false for a step absent from the listing", () => {
+		const scriptPath = `${fakeZigBase}-absent`;
+		makeFakeZig(scriptPath, 'echo "  lint\n  docs\n"');
+		process.env.ZIG = scriptPath;
+		expect(hasBuildStep("fuzz")).toBe(false);
+		expect(hasBuildStep("nonexistent-step")).toBe(false);
+	});
+
+	test("scenario 6: THROWS (not false) when `zig build -l` exits non-zero", () => {
+		// Regression guard: a build-system error must never be silently read
+		// as "step absent" and cause the gate to be skipped invisibly.
+		const scriptPath = `${fakeZigBase}-fail`;
+		makeFakeZig(scriptPath, "exit 1");
+		process.env.ZIG = scriptPath;
+		expect(() => hasBuildStep("lint")).toThrow(
+			/refusing to silently skip the gate/,
+		);
+	});
+});
+
+describe("hasBuildStep step-name length boundary (scenario 7)", () => {
+	// The source validates: /^[A-Za-z0-9_-]{1,64}$/ — so 64 chars is the
+	// maximum valid length and 65 chars must be rejected.
+
+	test("accepts a step name exactly 64 characters long", () => {
+		// With a non-existent $ZIG the name guard runs first; to isolate the
+		// length boundary we only care that `invalid step name` is NOT thrown.
+		// A subsequent spawn failure (ENOENT on /nonexistent/zig) is fine.
+		process.env.ZIG = "/nonexistent/pinned-zig-for-boundary-test";
+		const name64 = "a".repeat(64);
+		let rejectedName = false;
+		try {
+			hasBuildStep(name64);
+		} catch (e) {
+			if (/invalid step name/.test((e as Error).message)) rejectedName = true;
+		}
+		expect(rejectedName).toBe(false);
+	});
+
+	test("rejects a step name 65 characters long", () => {
+		process.env.ZIG = "/nonexistent/pinned-zig-for-boundary-test";
+		const name65 = "a".repeat(65);
+		expect(() => hasBuildStep(name65)).toThrow(/invalid step name/);
+	});
 });

@@ -14,7 +14,7 @@ import {
 	readStdinJson,
 	tail,
 } from "../../scripts/lib/runtime.ts";
-import { zig } from "../../scripts/lib/zig.ts";
+import { zig as realZig } from "../../scripts/lib/zig.ts";
 
 type PostToolPayload = {
 	tool_name?: string;
@@ -23,7 +23,7 @@ type PostToolPayload = {
 
 // 0.14/0.15 drift patterns — grep blocks obvious hallucinations.
 // Keep strict and short: each pattern here is a proven regression source.
-const BANNED_API: Array<{ re: RegExp; fix: string }> = [
+export const BANNED_API: Array<{ re: RegExp; fix: string }> = [
 	{
 		re: /std\.heap\.GeneralPurposeAllocator\b/,
 		fix: "Use std.heap.DebugAllocator(.{}) in 0.16",
@@ -46,7 +46,7 @@ const BANNED_API: Array<{ re: RegExp; fix: string }> = [
 	},
 ];
 
-async function main(): Promise<void> {
+export async function main(zig: typeof realZig = realZig): Promise<void> {
 	const payload = await readStdinJson<PostToolPayload>();
 	const file = payload.tool_input?.file_path ?? "";
 	if (!file.endsWith(".zig")) {
@@ -111,11 +111,13 @@ async function main(): Promise<void> {
 	return;
 }
 
-main().catch(async (err) => {
-	await appendJsonl(".claude/logs/posttool-zig.jsonl", {
-		event: "error",
-		error: String(err),
+if (import.meta.main) {
+	main().catch(async (err) => {
+		await appendJsonl(".claude/logs/posttool-zig.jsonl", {
+			event: "error",
+			error: String(err),
+		});
+		console.error(`posttooluse-zig: ${String(err)}`);
+		process.exit(1);
 	});
-	console.error(`posttooluse-zig: ${String(err)}`);
-	process.exit(1);
-});
+}

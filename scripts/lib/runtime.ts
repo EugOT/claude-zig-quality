@@ -134,18 +134,27 @@ export type SpawnResult = {
 };
 
 export function spawnSync(cmd: string[], opts: SpawnOpts = {}): SpawnResult {
-	const proc = Bun.spawnSync(cmd, {
-		cwd: opts.cwd ?? repoRoot(),
-		env: { ...process.env, ...(opts.env ?? {}) },
-		stdout: "pipe",
-		stderr: "pipe",
-		stdin: opts.stdin ?? "ignore",
-	});
-	return {
-		code: proc.exitCode,
-		stdout: proc.stdout.toString(),
-		stderr: proc.stderr.toString(),
-	};
+	// Bun.spawnSync THROWS (ENOENT) when the binary is absent from PATH — it does
+	// not return a non-zero exit code (same Codex P1 finding repoRoot() guards).
+	// Wrap it so a missing tool (jj/git/zig on a bare host) degrades to a 127
+	// "command not found" result instead of crashing every caller — SessionStart
+	// in particular must never fail (its contract: never block session start).
+	try {
+		const proc = Bun.spawnSync(cmd, {
+			cwd: opts.cwd ?? repoRoot(),
+			env: { ...process.env, ...(opts.env ?? {}) },
+			stdout: "pipe",
+			stderr: "pipe",
+			stdin: opts.stdin ?? "ignore",
+		});
+		return {
+			code: proc.exitCode,
+			stdout: proc.stdout.toString(),
+			stderr: proc.stderr.toString(),
+		};
+	} catch (err) {
+		return { code: 127, stdout: "", stderr: String(err) };
+	}
 }
 
 export type LogLine = Record<string, unknown> & {
@@ -182,4 +191,21 @@ export async function appendJsonl(
 export function tail(s: string, maxChars = 2048): string {
 	if (s.length <= maxChars) return s;
 	return `…\n${s.slice(s.length - maxChars)}`;
+}
+
+/**
+ * Print a uniform gate-failure diagnostic: a `<label> failed (exit <code>)`
+ * line followed by a tail of the merged stdout/stderr. Empty streams are
+ * omitted from the blob so a fmt-only failure does not print a blank line.
+ *
+ * Lives in runtime.ts (not the individual verify-*.ts tiers) so every tier
+ * shares one formatter and it is unit-testable with a console.error spy,
+ * independent of any gate run.
+ */
+export function printFail(label: string, result: SpawnResult): void {
+	console.error(`${label} failed (exit ${result.code ?? "?"})`);
+	const blob = [result.stdout, result.stderr]
+		.filter((s) => s.length > 0)
+		.join("\n");
+	if (blob.length > 0) console.error(tail(blob));
 }

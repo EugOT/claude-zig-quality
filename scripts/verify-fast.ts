@@ -1,11 +1,6 @@
 #!/usr/bin/env bun
 import { collectZigInputs } from "./lib/files.ts";
-import {
-	appendJsonl,
-	type SpawnResult,
-	spawnSync,
-	tail,
-} from "./lib/runtime.ts";
+import { appendJsonl, printFail, spawnSync } from "./lib/runtime.ts";
 /**
  * verify-fast.ts — Tier 1 (<2s).
  *
@@ -35,15 +30,7 @@ async function finish(code: number, startedAt: number): Promise<never> {
 	process.exit(code);
 }
 
-function printFail(label: string, result: SpawnResult): void {
-	console.error(`verify-fast: ${label} failed (exit ${result.code ?? "?"})`);
-	const blob = [result.stdout, result.stderr]
-		.filter((s) => s.length > 0)
-		.join("\n");
-	if (blob.length > 0) console.error(tail(blob));
-}
-
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
 	const startedAt = Date.now();
 	const version = zigVersion();
 	if (version.length === 0) {
@@ -63,7 +50,7 @@ async function main(): Promise<void> {
 	console.log(`== zig fmt --check (${fmtInputs.length} inputs) ==`);
 	const fmtResult = zig(["fmt", "--check", ...fmtInputs]);
 	if (fmtResult.code !== 0) {
-		printFail("zig fmt --check", fmtResult);
+		printFail("verify-fast: zig fmt --check", fmtResult);
 		await finish(fmtResult.code ?? 1, startedAt);
 	}
 
@@ -76,7 +63,7 @@ async function main(): Promise<void> {
 	for (const file of zigFiles) {
 		const ast = zig(["ast-check", file]);
 		if (ast.code !== 0) {
-			printFail(`zig ast-check ${file}`, ast);
+			printFail(`verify-fast: zig ast-check ${file}`, ast);
 			await finish(ast.code ?? 1, startedAt);
 		}
 	}
@@ -88,7 +75,7 @@ async function main(): Promise<void> {
 		const ziglint = spawnSync(["ziglint", ...fmtInputs]);
 		process.stdout.write(ziglint.stdout);
 		if (ziglint.code !== 0) {
-			printFail("ziglint", ziglint);
+			printFail("verify-fast: ziglint", ziglint);
 			await finish(ziglint.code ?? 1, startedAt);
 		}
 	} else {
@@ -99,4 +86,4 @@ async function main(): Promise<void> {
 	await finish(0, startedAt);
 }
 
-await main();
+if (import.meta.main) await main();
