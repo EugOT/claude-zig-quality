@@ -1,0 +1,181 @@
+#!/usr/bin/env bun
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { repoRoot, spawnSync } from "./lib/runtime.ts";
+
+const DEFAULT_IMAGE = "claude-zig-quality-kcov:zig0.16-bun1.3.0";
+const DOCKERFILE = "docker/coverage.Dockerfile";
+
+export type CoverageDockerArgs = {
+	build: boolean;
+	failUnderLines: string;
+	image: string;
+	platform?: string;
+};
+
+function takeValue(argv: string[], index: number, flag: string): string {
+	const value = argv[index + 1];
+	if (!value) throw new Error(`${flag} requires a value`);
+	return value;
+}
+
+export function parseCoverageDockerArgs(argv: string[]): CoverageDockerArgs {
+	const args: CoverageDockerArgs = {
+		build: !argv.includes("--no-build"),
+		failUnderLines: process.env.ZIG_QM_COVERAGE_THRESHOLD ?? "95",
+		image: process.env.ZIG_QM_COVERAGE_IMAGE ?? DEFAULT_IMAGE,
+		platform: process.env.ZIG_QM_COVERAGE_PLATFORM,
+	};
+
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		switch (arg) {
+			case "--fail-under-lines":
+			case "--threshold":
+				args.failUnderLines = takeValue(argv, i, arg);
+				i++;
+				break;
+			case "--image":
+				args.image = takeValue(argv, i, arg);
+				i++;
+				break;
+			case "--platform":
+				args.platform = takeValue(argv, i, arg);
+				i++;
+				break;
+			case "--no-build":
+				break;
+			case "--help":
+			case "-h":
+				printHelp();
+				process.exit(0);
+				return;
+			default:
+				throw new Error(`unknown argument: ${arg}`);
+		}
+	}
+
+	return args;
+}
+
+function printHelp(): void {
+	console.log(`Usage:
+  bun scripts/coverage-docker.ts [--fail-under-lines 95] [--platform linux/arm64] [--image <tag>] [--no-build]
+
+Builds and runs the repo-owned kcov image. This is the reproducible local
+Docker/OrbStack lane and the CI fallback when the host image does not provide
+kcov.`);
+}
+
+function requireDocker(): void {
+	if (Bun.which("docker") === null) {
+		throw new Error(
+			"docker was not found on PATH; start OrbStack or use a Docker-capable CI runner.",
+		);
+	}
+	const info = spawnSync([
+		"docker",
+		"info",
+		"--format",
+		"{{.OperatingSystem}}",
+	]);
+	if (info.code !== 0) {
+		throw new Error(
+			`docker daemon is unavailable:\n${info.stderr || info.stdout}`,
+		);
+	}
+}
+
+function buildImage(root: string, args: CoverageDockerArgs): void {
+	const dockerfile = resolve(root, DOCKERFILE);
+	if (!existsSync(dockerfile)) {
+		throw new Error(`coverage Dockerfile not found: ${dockerfile}`);
+	}
+	const cmd = ["docker", "build", "-f", dockerfile, "-t", args.image];
+	if (args.platform) cmd.push("--platform", args.platform);
+	cmd.push(root);
+	const result = spawnSync(cmd, { cwd: root });
+	process.stdout.write(result.stdout);
+	process.stderr.write(result.stderr);
+	if (result.code !== 0) {
+		throw new Error(`docker build failed with exit ${result.code}`);
+	}
+}
+
+function gitMetadataMount(root: string): string[] {
+	const result = spawnSync(["git", "rev-parse", "--git-dir"], { cwd: root });
+	if (result.code !== 0) return [];
+	const raw = result.stdout.trim();
+	if (raw.length === 0) return [];
+	const gitDir = raw.startsWith("/") ? raw : resolve(root, raw);
+	if (!existsSync(gitDir) || gitDir.startsWith(`${root}/`)) return [];
+	return ["-v", `${gitDir}:${gitDir}:ro`];
+}
+
+function shellQuote(value: string): string {
+	return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function runCoverage(root: string, args: CoverageDockerArgs): number {
+	const uid = process.getuid?.() ?? 1000;
+	const gid = process.getgid?.() ?? 1000;
+	const inner = [
+		"set -euo pipefail",
+		'mkdir -p "$HOME" "$BUN_INSTALL_CACHE_DIR" "$XDG_CACHE_HOME"',
+		"bun ci",
+		"bun scripts/coverage-linux.ts --fail-under-lines " +
+			shellQuote(args.failUnderLines),
+	].join("; ");
+	const lane = process.env.CI ? "ci-linux" : "orbstack-linux";
+	const cmd = [
+		"docker",
+		"run",
+		"--rm",
+		"--init",
+		"--cap-add",
+		"SYS_PTRACE",
+		"--security-opt",
+		"seccomp=unconfined",
+		"--user",
+		`${uid}:${gid}`,
+		"-e",
+		"HOME=/tmp/zig-quality-coverage-home",
+		"-e",
+		"BUN_INSTALL_CACHE_DIR=/tmp/bun-cache",
+		"-e",
+		"XDG_CACHE_HOME=/tmp/xdg-cache",
+		"-e",
+		"ZIG=/usr/local/bin/zig",
+		"-e",
+		`ZIG_QM_PLATFORM_LANE=${process.env.ZIG_QM_PLATFORM_LANE ?? lane}`,
+		"-v",
+		`${root}:/work`,
+		...gitMetadataMount(root),
+		"-w",
+		"/work",
+	];
+	if (args.platform) cmd.push("--platform", args.platform);
+	cmd.push(args.image, "bash", "-lc", inner);
+
+	const result = spawnSync(cmd, { cwd: root });
+	process.stdout.write(result.stdout);
+	process.stderr.write(result.stderr);
+	return result.code ?? 1;
+}
+
+export async function main(argv = process.argv.slice(2)): Promise<number> {
+	const args = parseCoverageDockerArgs(argv);
+	const root = repoRoot();
+	requireDocker();
+	if (args.build) buildImage(root, args);
+	return runCoverage(root, args);
+}
+
+if (import.meta.main) {
+	try {
+		process.exit(await main());
+	} catch (err) {
+		console.error(err instanceof Error ? err.message : String(err));
+		process.exit(1);
+	}
+}

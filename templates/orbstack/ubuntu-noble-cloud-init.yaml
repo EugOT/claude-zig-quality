@@ -1,0 +1,16 @@
+# Template only. Copy into host provisioning if you want a reusable OrbStack
+# Linux machine for Zig quality gates.
+package_update: true
+packages:
+  - curl
+  - git
+  - ca-certificates
+  - unzip
+runcmd:
+  - curl https://mise.run | sh
+  - curl -fsSL https://bun.sh/install | bash
+  - /root/.local/bin/mise use -g zig@0.16.0
+
+# kcov is intentionally not listed above: Ubuntu noble arm64 may not publish a
+# kcov package in the default apt repos. Keep coverage advisory until the image
+# installs kcov from a known package/source build.

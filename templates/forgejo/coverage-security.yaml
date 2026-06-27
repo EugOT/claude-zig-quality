@@ -1,0 +1,47 @@
+name: coverage-security
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+
+concurrency:
+  group: coverage-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-coverage-security:
+    name: Linux coverage and security
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install mise
+        run: |
+          curl https://mise.run | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+
+      - name: Install Zig 0.16.0 via mise
+        run: mise use -g zig@0.16.0
+
+      - name: Bun install
+        run: bun install --frozen-lockfile
+
+      - name: PR gate
+        run: bun scripts/verify-pr.ts
+
+      - name: Security scan
+        run: bun scripts/security-scan.ts
+
+      - name: Coverage
+        run: bun scripts/coverage-docker.ts --fail-under-lines 95

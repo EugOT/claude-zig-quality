@@ -1,0 +1,10 @@
+.git/
+.jj/
+.zig-cache/
+coverage/
+node_modules/
+zig-out/
+.agents/
+.codex/
+.claude/logs/
+.claude/audit/

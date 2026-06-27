@@ -20,9 +20,10 @@ The four-tier gate topology (per-turn → per-commit → per-PR → per-release)
 drives when each reference becomes relevant. Per-turn and per-commit work
 almost always needs `0.16-idioms` and `allocator-discipline`; PR-tier work
 adds `error-set-discipline`, `testing-patterns`, and `io-injection`;
-release-tier adds `release-checklist`. The `0.16-grounded-facts` reference
-is the canonical anti-drift ground truth and should be consulted whenever a
-Zig 0.16 API name is in doubt.
+release-tier adds `release-checklist`; platform/coverage/security workflow
+work adds `platform-coverage-security`. The `0.16-grounded-facts` reference is
+the canonical anti-drift ground truth and should be consulted whenever a Zig
+0.16 API name is in doubt.
 
 ## Untrusted-data boundary
 
@@ -115,6 +116,15 @@ fallback, optional cosign signing.
 **Load when:** preparing a tagged release, authoring
 `scripts/verify-release.ts`, or reviewing a release workflow.
 
+### `references/platform-coverage-security.md`
+
+macOS native + OrbStack Linux + CI Linux workflow: which lane is
+authoritative for fuzz, kcov coverage, workflow/security scanning, and merge
+evidence. Pairs with ADR 0007 and `scripts/{orbstack-linux,coverage-linux,
+coverage-docker,security-scan}.ts`.
+**Load when:** wiring coverage/security gates, deciding whether a macOS result
+is enough evidence, or preparing an OrbStack/CI Linux run.
+
 ## Assets (load on demand)
 
 ### `assets/migration-table.md`
@@ -128,6 +138,11 @@ code that predates 0.16.
 One-page visual of the four-tier gate topology: what runs at each tier
 and which hook or skill invokes it. Use when reasoning about where a
 new check belongs or why a check is failing at the wrong tier.
+
+### `assets/platform-gate-map.md`
+
+One-page visual of the macOS native, OrbStack Linux, and CI Linux authority
+split. Use when reporting which lane produced a green/red result.
 
 ## Repeated boundary reminder
 

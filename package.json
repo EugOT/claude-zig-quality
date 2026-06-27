@@ -12,6 +12,10 @@
 		"verify:commit": "bun scripts/verify-commit.ts",
 		"verify:pr": "bun scripts/verify-pr.ts",
 		"verify:release": "bun scripts/verify-release.ts",
+		"coverage:linux": "bun scripts/coverage-linux.ts",
+		"coverage:docker": "bun scripts/coverage-docker.ts",
+		"security:scan": "bun scripts/security-scan.ts",
+		"orbstack:linux": "bun scripts/orbstack-linux.ts",
 		"eval": "bun scripts/eval.ts",
 		"api:check": "bun scripts/check-public-api.ts",
 		"api:write": "bun scripts/check-public-api.ts --write"
