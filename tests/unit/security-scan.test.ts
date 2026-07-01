@@ -87,12 +87,18 @@ describe("security-scan summary", () => {
 });
 describe("security-scan runner", () => {
 	test("keeps required default checks even when tools are absent", () => {
-		const requiredNames = defaultSecurityChecks()
+		const checks = defaultSecurityChecks();
+		const requiredNames = checks
 			.filter((check) => check.required)
 			.map((check) => check.name);
 		expect(requiredNames).toContain("git-diff-check");
 		expect(requiredNames).toContain("bun-audit");
 		expect(requiredNames).toContain("secret-scan");
+		expect(checks).toContainEqual({
+			name: "workflow-security",
+			command: ["zizmor", ".forgejo/workflows"],
+			required: false,
+		});
 	});
 
 	test("marks missing tools as skipped", () => {

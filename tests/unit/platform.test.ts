@@ -107,4 +107,20 @@ describe("platform lane detection", () => {
 			orbstack: false,
 		});
 	});
+
+	test("non-ci override preserves live CI flag", () => {
+		const input = {
+			platform: "darwin",
+			env: { ZIG_QM_PLATFORM_LANE: "orbstack-linux", CI: "true" },
+		} as const;
+		expect(detectPlatform(input)).toEqual({
+			lane: "orbstack-linux",
+			ci: true,
+			orbstack: true,
+		});
+		const facts = platformFacts(input);
+		expect(facts.lane).toBe("orbstack-linux");
+		expect(facts.ci).toBe(true);
+		expect(facts.orbstack).toBe(true);
+	});
 });

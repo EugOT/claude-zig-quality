@@ -14,10 +14,6 @@ export type SecurityResult = SecurityCheck & {
 	code: number | null;
 };
 
-function toolExists(tool: string): boolean {
-	return Bun.which(tool) !== null;
-}
-
 export function defaultSecurityChecks(): SecurityCheck[] {
 	// Required checks stay in the default suite even when a tool is absent;
 	// `runSecurityChecks` records the missing tool as skipped and the summary
@@ -45,14 +41,12 @@ export function defaultSecurityChecks(): SecurityCheck[] {
 			],
 			required: true,
 		},
-	];
-	if (toolExists("zizmor")) {
-		checks.push({
+		{
 			name: "workflow-security",
 			command: ["zizmor", ".forgejo/workflows"],
 			required: false,
-		});
-	}
+		},
+	];
 	return checks;
 }
 

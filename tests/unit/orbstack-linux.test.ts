@@ -103,4 +103,19 @@ describe("orbstack-linux command builder", () => {
 		expect(text).toContain("kcov");
 		expect(text).toContain("mise use -g zig@0.16.0");
 	});
+
+	test("Ubuntu cloud-init template keeps coverage advisory", async () => {
+		const text = await readFile(
+			resolve(repoRoot(), "templates/orbstack/ubuntu-noble-cloud-init.yaml"),
+			"utf8",
+		);
+		expect(text).toContain(
+			'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"',
+		);
+		expect(text).toContain("command -v mise");
+		expect(text).toContain("command -v bun");
+		expect(text).toContain("mise use -g zig@0.16.0");
+		expect(text).toContain("kcov is intentionally not listed");
+		expect(text).not.toContain("  - kcov");
+	});
 });

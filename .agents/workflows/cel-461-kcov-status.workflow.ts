@@ -750,12 +750,15 @@ function assertWorkflow(program: WorkflowProgram): void {
 }
 
 function globPrefix(glob: string): string {
-	const wildcard = glob.search(/[*?[{]/);
+	assertSupportedGlob(glob);
+	const wildcard = glob.search(/[*?]/);
 	const prefix = wildcard === -1 ? glob : glob.slice(0, wildcard);
 	return prefix.replace(/\/+$/, "");
 }
 
 function globsMayOverlap(left: string, right: string): boolean {
+	assertSupportedGlob(left);
+	assertSupportedGlob(right);
 	if (left === right || left === "**/*" || right === "**/*") return true;
 	if (globMatches(left, right) || globMatches(right, left)) return true;
 	const leftSample = globSample(left);
@@ -772,11 +775,20 @@ function globsMayOverlap(left: string, right: string): boolean {
 	);
 }
 
+function assertSupportedGlob(glob: string): void {
+	if (/[[\]{}]/.test(glob)) {
+		throw new Error(
+			`unsupported glob syntax in ${glob}; only *, **, and ? are supported`,
+		);
+	}
+}
+
 function escapeRegExp(value: string): string {
 	return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
 function globToRegExp(glob: string): RegExp {
+	assertSupportedGlob(glob);
 	let source = "^";
 	for (let i = 0; i < glob.length; i++) {
 		const char = glob[i];

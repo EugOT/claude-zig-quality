@@ -23,12 +23,16 @@ jobs:
 
       - name: Install mise
         run: |
-          curl -fsSL https://mise.run | MISE_VERSION=v2025.11.7 sh
+          curl -fsSL https://mise.run -o /tmp/mise-install.sh
+          echo "dc98fcc7af7c104b652b7ddea54f3d15cf2ef74948a7e82b754c647b04ad38f8  /tmp/mise-install.sh" | sha256sum -c -
+          MISE_VERSION=v2025.11.7 sh /tmp/mise-install.sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install Bun
         run: |
-          curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.3 bash
+          curl -fsSL https://bun.sh/install -o /tmp/bun-install.sh
+          echo "bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd  /tmp/bun-install.sh" | sha256sum -c -
+          BUN_VERSION=1.3.3 bash /tmp/bun-install.sh
           echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
       - name: Install Zig 0.16.0 via mise

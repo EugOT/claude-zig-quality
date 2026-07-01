@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { createHash } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { platformFacts } from "./lib/platform.ts";
 import { repoRoot, spawnSync } from "./lib/runtime.ts";
@@ -331,15 +331,17 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 	};
 }
 
-async function readSummary(outputDir: string): Promise<CoverageSummary> {
+export async function readSummary(outputDir: string): Promise<CoverageSummary> {
 	const candidates = ["index.json", "coverage.json", "summary.json"].map(
 		(name) => resolve(outputDir, name),
 	);
-	const coverageGlob = new Bun.Glob("**/coverage.json");
-	for (const path of [
-		...coverageGlob.scanSync({ cwd: outputDir, absolute: true }),
-	].sort()) {
-		candidates.push(path);
+	for (const pattern of ["**/coverage.json", "**/index.json"]) {
+		const glob = new Bun.Glob(pattern);
+		for (const path of [
+			...glob.scanSync({ cwd: outputDir, absolute: true }),
+		].sort()) {
+			candidates.push(path);
+		}
 	}
 	let best: CoverageSummary | null = null;
 	for (const path of candidates) {
@@ -362,6 +364,25 @@ async function readSummary(outputDir: string): Promise<CoverageSummary> {
 	};
 }
 
+export async function assertSafeSummaryOutput(
+	summaryPath: string,
+): Promise<void> {
+	const summaryStat = await lstat(summaryPath).catch((err: unknown) => {
+		if (
+			err &&
+			typeof err === "object" &&
+			"code" in err &&
+			err.code === "ENOENT"
+		) {
+			return null;
+		}
+		throw err;
+	});
+	if (summaryStat?.isSymbolicLink()) {
+		throw new Error("--summary-output must not be a symbolic link");
+	}
+}
+
 async function emitSummary(
 	root: string,
 	opts: CoverageOptions,
@@ -369,6 +390,7 @@ async function emitSummary(
 ) {
 	const summaryPath = resolveSummaryOutput(root, opts.summaryOutput);
 	await mkdir(dirname(summaryPath), { recursive: true });
+	await assertSafeSummaryOutput(summaryPath);
 	await writeFile(summaryPath, `${JSON.stringify(event, null, 2)}\n`);
 	console.log(JSON.stringify(event));
 }

@@ -123,6 +123,9 @@ function runCoverage(root: string, args: CoverageDockerArgs): number {
 			shellQuote(args.failUnderLines),
 	].join("; ");
 	const lane = process.env.CI ? "ci-linux" : "orbstack-linux";
+	// kcov needs ptrace support, so this coverage-only container disables the
+	// default seccomp profile. The run stays scoped to the repo mount and host
+	// uid/gid instead of running as root.
 	const cmd = [
 		"docker",
 		"run",

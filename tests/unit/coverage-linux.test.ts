@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	assertSafeCoverageOutput,
+	assertSafeSummaryOutput,
 	buildKcovArgs,
 	coverageStem,
 	parseCoverageArgs,
 	parseCoverageSummary,
+	readSummary,
 	resolveRepoChild,
 	resolveSummaryOutput,
 	zigTestCompileArgs,
@@ -177,6 +179,18 @@ describe("coverage-linux argument parsing", () => {
 		);
 	});
 
+	test("summary output rejects symlink destination files", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-root-"));
+		const outside = join(root, "outside-summary.json");
+		const link = join(root, "coverage/summary.json");
+		await mkdir(join(root, "coverage"), { recursive: true });
+		await writeFile(outside, "{}");
+		await symlink(outside, link);
+		await expect(assertSafeSummaryOutput(link)).rejects.toThrow(
+			"must not be a symbolic link",
+		);
+	});
+
 	test("coverage output cleanup is limited to generated coverage directories", async () => {
 		const root = await mkdtemp(join(tmpdir(), "coverage-root-"));
 		expect(() => assertSafeCoverageOutput(root, join(root, "src"))).toThrow(
@@ -260,5 +274,17 @@ describe("coverage summary parsing", () => {
 		expect(
 			parseCoverageSummary('{"totals":{"lines": -1}}').linePercent,
 		).toBeNull();
+	});
+
+	test("reads nested kcov index summaries", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-summary-"));
+		await mkdir(join(root, "nested"), { recursive: true });
+		await writeFile(join(root, "nested/index.json"), '{"line_coverage": 96}');
+		expect(await readSummary(root)).toEqual({
+			linePercent: 96,
+			coveredLines: null,
+			totalLines: null,
+			source: join(root, "nested/index.json"),
+		});
 	});
 });

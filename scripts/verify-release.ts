@@ -165,7 +165,7 @@ export function validateSbom(
 	if (componentsPresent && components === null) {
 		errors.push("components is not an array");
 	}
-	if (components === null && declaredDeps.length > 0) {
+	if (!componentsPresent && declaredDeps.length > 0) {
 		errors.push("components is required when declared dependencies exist");
 	}
 	const componentNames = new Set(

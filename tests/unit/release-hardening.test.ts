@@ -44,13 +44,26 @@ test("validateSbom rejects non-JSON", () => {
 });
 
 test("validateSbom rejects wrong bomFormat / missing specVersion / non-array components", () => {
-	const r = validateSbom(
-		JSON.stringify({ bomFormat: "SPDX", components: {} }),
-	);
+	const r = validateSbom(JSON.stringify({ bomFormat: "SPDX", components: {} }));
 	expect(r.ok).toBe(false);
 	expect(r.errors.some((e) => /bomFormat/.test(e))).toBe(true);
 	expect(r.errors.some((e) => /specVersion/.test(e))).toBe(true);
 	expect(r.errors.some((e) => /components is not an array/.test(e))).toBe(true);
+});
+
+test("validateSbom does not report missing components when components is malformed", () => {
+	const r = validateSbom(
+		JSON.stringify({
+			bomFormat: "CycloneDX",
+			specVersion: "1.5",
+			components: {},
+		}),
+		["ziglint"],
+	);
+	expect(r.errors).toContain("components is not an array");
+	expect(r.errors).not.toContain(
+		"components is required when declared dependencies exist",
+	);
 });
 
 test("validateSbom flags a declared dependency missing from components", () => {
@@ -119,11 +132,15 @@ test("signingEnvError: no credentials is an error", () => {
 });
 
 test("signingEnvError: key-based is OK", () => {
-	expect(signingEnvError("/usr/bin/cosign", { COSIGN_KEY: "k.key" })).toBeNull();
+	expect(
+		signingEnvError("/usr/bin/cosign", { COSIGN_KEY: "k.key" }),
+	).toBeNull();
 });
 
 test("signingEnvError: keyless (experimental / OIDC / CI token) is OK", () => {
-	expect(signingEnvError("/usr/bin/cosign", { COSIGN_EXPERIMENTAL: "1" })).toBeNull();
+	expect(
+		signingEnvError("/usr/bin/cosign", { COSIGN_EXPERIMENTAL: "1" }),
+	).toBeNull();
 	expect(
 		signingEnvError("/usr/bin/cosign", { COSIGN_OIDC_ISSUER: "https://x" }),
 	).toBeNull();
@@ -161,7 +178,6 @@ test("signingSignArgs: keyless sign-blob writes a Sigstore bundle", () => {
 		"bin/app",
 	]);
 });
-
 
 test("signingVerifyArgs: key-based uses --key", () => {
 	const args = signingVerifyArgs("bin/app", "bin/app.sig", {
@@ -212,7 +228,8 @@ describe("declaredDepNames", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
-	const writeZon = (body: string) => writeFile(join(dir, "build.zig.zon"), body);
+	const writeZon = (body: string) =>
+		writeFile(join(dir, "build.zig.zon"), body);
 
 	test("returns [] when build.zig.zon is absent", async () => {
 		expect(await declaredDepNames(dir)).toEqual([]);
@@ -244,7 +261,7 @@ describe("declaredDepNames", () => {
 		expect(await declaredDepNames(dir)).toEqual(["other", "ziglint"]);
 	});
 
-	test("captures quoted dependency names .@\"a-b\"", async () => {
+	test('captures quoted dependency names .@"a-b"', async () => {
 		await writeZon(`.{
   .dependencies = .{
     .@"foo-bar" = .{ .path = "x" },
