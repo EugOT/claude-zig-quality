@@ -3,6 +3,7 @@ import {
 	defaultSecurityChecks,
 	runSecurityChecks,
 	type SecurityResult,
+	securityCheckTimeoutMs,
 	summarizeSecurity,
 } from "../../scripts/security-scan.ts";
 
@@ -87,18 +88,63 @@ describe("security-scan summary", () => {
 });
 describe("security-scan runner", () => {
 	test("keeps required default checks even when tools are absent", () => {
+		const savedLogOpts = process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS;
+		delete process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS;
 		const checks = defaultSecurityChecks();
-		const requiredNames = checks
-			.filter((check) => check.required)
-			.map((check) => check.name);
-		expect(requiredNames).toContain("git-diff-check");
-		expect(requiredNames).toContain("bun-audit");
-		expect(requiredNames).toContain("secret-scan");
-		expect(checks).toContainEqual({
-			name: "workflow-security",
-			command: ["zizmor", ".forgejo/workflows"],
-			required: false,
-		});
+		try {
+			const requiredNames = checks
+				.filter((check) => check.required)
+				.map((check) => check.name);
+			expect(requiredNames).toContain("git-diff-check");
+			expect(requiredNames).toContain("bun-audit");
+			expect(requiredNames).toContain("secret-scan");
+			expect(checks).toContainEqual({
+				name: "workflow-security",
+				command: ["zizmor", ".forgejo/workflows"],
+				required: false,
+			});
+			expect(checks.find((check) => check.name === "secret-scan")).toEqual({
+				name: "secret-scan",
+				command: ["gitleaks", "detect", "--no-banner", "--redact"],
+				required: true,
+			});
+		} finally {
+			if (savedLogOpts === undefined)
+				delete process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS;
+			else process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS = savedLogOpts;
+		}
+	});
+
+	test("uses gitleaks log opts only when explicitly configured", () => {
+		const savedLogOpts = process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS;
+		process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS = "--max-count=20";
+		try {
+			expect(defaultSecurityChecks()).toContainEqual({
+				name: "secret-scan",
+				command: [
+					"gitleaks",
+					"detect",
+					"--no-banner",
+					"--redact",
+					"--log-opts",
+					"--max-count=20",
+				],
+				required: true,
+			});
+		} finally {
+			if (savedLogOpts === undefined)
+				delete process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS;
+			else process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS = savedLogOpts;
+		}
+	});
+
+	test("allows slow lanes to configure the required scan timeout", () => {
+		expect(securityCheckTimeoutMs(undefined)).toBe(120_000);
+		expect(securityCheckTimeoutMs("300000")).toBe(300_000);
+		expect(() => securityCheckTimeoutMs("0")).toThrow("positive number");
+		expect(() => securityCheckTimeoutMs("not-a-number")).toThrow(
+			"positive number",
+		);
 	});
 
 	test("marks missing tools as skipped", () => {

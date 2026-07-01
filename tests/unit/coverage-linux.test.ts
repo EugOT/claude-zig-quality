@@ -10,6 +10,7 @@ import {
 	parseCoverageArgs,
 	parseCoverageSummary,
 	readSummary,
+	resolveCoverageTarget,
 	resolveRepoChild,
 	resolveSummaryOutput,
 	zigTestCompileArgs,
@@ -221,6 +222,25 @@ describe("coverage-linux argument parsing", () => {
 		expect(b).toMatch(/^src_b_mod_[0-9a-f]{8}$/);
 		expect(a).not.toBe(b);
 	});
+
+	test("coverage targets must be repo-local Zig files", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-root-"));
+		await mkdir(join(root, "src"), { recursive: true });
+		await writeFile(join(root, "src/main.zig"), "test {}\n");
+		expect(resolveCoverageTarget(root, "src/main.zig")).toEqual({
+			source: join(root, "src/main.zig"),
+			targetRel: "src/main.zig",
+		});
+		expect(() => resolveCoverageTarget(root, "../outside.zig")).toThrow(
+			"must stay inside the repository",
+		);
+		expect(() =>
+			resolveCoverageTarget(root, join(tmpdir(), "outside.zig")),
+		).toThrow("repo-local .zig file");
+		expect(() => resolveCoverageTarget(root, "src/main.txt")).toThrow(
+			"repo-local .zig file",
+		);
+	});
 });
 
 describe("coverage summary parsing", () => {
@@ -297,5 +317,24 @@ describe("coverage summary parsing", () => {
 			totalLines: null,
 			source: join(root, "nested/index.json"),
 		});
+	});
+
+	test("aggregates per-target kcov count summaries", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-summary-"));
+		await mkdir(join(root, "target-a"), { recursive: true });
+		await mkdir(join(root, "target-b"), { recursive: true });
+		await writeFile(
+			join(root, "target-a/coverage.json"),
+			'{"covered_lines":80,"total_lines":100}',
+		);
+		await writeFile(
+			join(root, "target-b/index.json"),
+			'{"covered_lines":10,"total_lines":20}',
+		);
+		const summary = await readSummary(root);
+		expect(summary.coveredLines).toBe(90);
+		expect(summary.totalLines).toBe(120);
+		expect(summary.linePercent).toBeCloseTo(75);
+		expect(summary.source).toBe("merged:2");
 	});
 });

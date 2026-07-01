@@ -9,10 +9,16 @@ packages:
 runcmd:
   - |
     set -e
-    export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
-    command -v mise || { echo "install mise from a pinned package or checksum-verified artifact before running this template" >&2; exit 1; }
-    command -v bun || { echo "install bun from a pinned package or checksum-verified artifact before running this template" >&2; exit 1; }
-    mise use -g zig@0.16.0
+    login_user="${ORBSTACK_LOGIN_USER:-orb}"
+    login_home="$(getent passwd "$login_user" | cut -d: -f6)"
+    test -n "$login_home"
+    sudo -H -u "$login_user" env PATH="$login_home/.local/bin:$login_home/.bun/bin:$PATH" bash -lc '
+      set -e
+      export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
+      command -v mise || { echo "install mise from a pinned package or checksum-verified artifact before running this template" >&2; exit 1; }
+      command -v bun || { echo "install bun from a pinned package or checksum-verified artifact before running this template" >&2; exit 1; }
+      mise use -g zig@0.16.0
+    '
 
 # kcov is intentionally not listed above: Ubuntu noble arm64 may not publish a
 # kcov package in the default apt repos. Keep coverage advisory until the image

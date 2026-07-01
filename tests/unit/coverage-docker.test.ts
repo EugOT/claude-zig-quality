@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	envOrDefault,
 	parseCoverageDockerArgs,
 	shellQuote,
 } from "../../scripts/coverage-docker.ts";
@@ -8,19 +9,52 @@ describe("coverage-docker argument parsing", () => {
 	test("uses fail-closed measured coverage defaults", () => {
 		const savedThreshold = process.env.ZIG_QM_COVERAGE_THRESHOLD;
 		const savedImage = process.env.ZIG_QM_COVERAGE_IMAGE;
+		const savedPlatform = process.env.ZIG_QM_COVERAGE_PLATFORM;
 		delete process.env.ZIG_QM_COVERAGE_THRESHOLD;
 		delete process.env.ZIG_QM_COVERAGE_IMAGE;
+		delete process.env.ZIG_QM_COVERAGE_PLATFORM;
 		try {
 			const opts = parseCoverageDockerArgs([]);
 			expect(opts.build).toBe(true);
 			expect(opts.failUnderLines).toBe("95");
 			expect(opts.image).toBe("claude-zig-quality-kcov:zig0.16-bun1.3.0");
+			expect(opts.platform).toBeUndefined();
 		} finally {
 			if (savedThreshold === undefined)
 				delete process.env.ZIG_QM_COVERAGE_THRESHOLD;
 			else process.env.ZIG_QM_COVERAGE_THRESHOLD = savedThreshold;
 			if (savedImage === undefined) delete process.env.ZIG_QM_COVERAGE_IMAGE;
 			else process.env.ZIG_QM_COVERAGE_IMAGE = savedImage;
+			if (savedPlatform === undefined)
+				delete process.env.ZIG_QM_COVERAGE_PLATFORM;
+			else process.env.ZIG_QM_COVERAGE_PLATFORM = savedPlatform;
+		}
+	});
+
+	test("treats empty environment defaults as unset", () => {
+		expect(envOrDefault("", "fallback")).toBe("fallback");
+		expect(envOrDefault(undefined, "fallback")).toBe("fallback");
+		expect(envOrDefault("value", "fallback")).toBe("value");
+		const savedThreshold = process.env.ZIG_QM_COVERAGE_THRESHOLD;
+		const savedImage = process.env.ZIG_QM_COVERAGE_IMAGE;
+		const savedPlatform = process.env.ZIG_QM_COVERAGE_PLATFORM;
+		process.env.ZIG_QM_COVERAGE_THRESHOLD = "";
+		process.env.ZIG_QM_COVERAGE_IMAGE = "";
+		process.env.ZIG_QM_COVERAGE_PLATFORM = "";
+		try {
+			const opts = parseCoverageDockerArgs([]);
+			expect(opts.failUnderLines).toBe("95");
+			expect(opts.image).toBe("claude-zig-quality-kcov:zig0.16-bun1.3.0");
+			expect(opts.platform).toBeUndefined();
+		} finally {
+			if (savedThreshold === undefined)
+				delete process.env.ZIG_QM_COVERAGE_THRESHOLD;
+			else process.env.ZIG_QM_COVERAGE_THRESHOLD = savedThreshold;
+			if (savedImage === undefined) delete process.env.ZIG_QM_COVERAGE_IMAGE;
+			else process.env.ZIG_QM_COVERAGE_IMAGE = savedImage;
+			if (savedPlatform === undefined)
+				delete process.env.ZIG_QM_COVERAGE_PLATFORM;
+			else process.env.ZIG_QM_COVERAGE_PLATFORM = savedPlatform;
 		}
 	});
 

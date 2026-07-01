@@ -79,6 +79,17 @@ describe("orbstack-linux command builder", () => {
 		expect(opts.command).toContain("bun scripts/security-scan.ts");
 	});
 
+	test("enables coverage only for known kcov-capable images", () => {
+		expect(
+			imageHasKcov(
+				"archlinux:base@sha256:068a765646e75e51fe5d544b0f95c85d0322d0a372659e9d5f10fb8402ca53f1",
+			),
+		).toBe(true);
+		expect(imageHasKcov("archlinux:base")).toBe(true);
+		expect(imageHasKcov("debian:stable")).toBe(false);
+		expect(imageHasKcov("ubuntu:noble")).toBe(false);
+	});
+
 	test("allows option-looking command payloads", () => {
 		const opts = parseOrbStackArgs(["--command", "--version"]);
 		expect(opts.command).toBe("--version");
@@ -126,6 +137,9 @@ describe("orbstack-linux command builder", () => {
 		expect(text).toContain("pacman -Syu --noconfirm --needed");
 		expect(text).toContain("kcov");
 		expect(text).toContain("mise use -g zig@0.16.0");
+		expect(text.indexOf("export PATH=")).toBeLessThan(
+			text.indexOf("command -v mise"),
+		);
 	});
 
 	test("Ubuntu cloud-init template keeps coverage advisory", async () => {
@@ -136,6 +150,8 @@ describe("orbstack-linux command builder", () => {
 		expect(text).toContain(
 			'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"',
 		);
+		expect(text).toMatch(/login_user="\$\{ORBSTACK_LOGIN_USER:-orb\}"/);
+		expect(text).toContain('sudo -H -u "$login_user"');
 		expect(text).toContain("command -v mise");
 		expect(text).toContain("command -v bun");
 		expect(text).toContain("command -v mise || {");

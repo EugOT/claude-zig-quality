@@ -18,6 +18,11 @@ export function defaultSecurityChecks(): SecurityCheck[] {
 	// Required checks stay in the default suite even when a tool is absent;
 	// `runSecurityChecks` records the missing tool as skipped and the summary
 	// fails closed instead of silently narrowing the security gate.
+	const secretScanCommand = ["gitleaks", "detect", "--no-banner", "--redact"];
+	const logOpts = process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS;
+	if (logOpts && logOpts.length > 0) {
+		secretScanCommand.push("--log-opts", logOpts);
+	}
 	const checks: SecurityCheck[] = [
 		{
 			name: "git-diff-check",
@@ -31,14 +36,7 @@ export function defaultSecurityChecks(): SecurityCheck[] {
 		},
 		{
 			name: "secret-scan",
-			command: [
-				"gitleaks",
-				"detect",
-				"--no-banner",
-				"--redact",
-				"--log-opts",
-				process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS ?? "--max-count=200",
-			],
+			command: secretScanCommand,
 			required: true,
 		},
 		{
@@ -60,10 +58,22 @@ export function summarizeSecurity(results: SecurityResult[]): {
 	return { ok: failedRequired.length === 0, failedRequired };
 }
 
+export function securityCheckTimeoutMs(
+	value = process.env.SECURITY_SCAN_TIMEOUT_MS,
+): number {
+	if (value === undefined || value.length === 0)
+		return SECURITY_CHECK_TIMEOUT_MS;
+	const timeoutMs = Number(value);
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+		throw new Error("SECURITY_SCAN_TIMEOUT_MS must be a positive number");
+	}
+	return timeoutMs;
+}
+
 export function runSecurityChecks(
 	checks: SecurityCheck[] = defaultSecurityChecks(),
 	cwd = repoRoot(),
-	timeoutMs = SECURITY_CHECK_TIMEOUT_MS,
+	timeoutMs = securityCheckTimeoutMs(),
 ): SecurityResult[] {
 	const results: SecurityResult[] = [];
 	for (const check of checks) {
@@ -92,7 +102,18 @@ export function runSecurityChecks(
 }
 
 export async function main(): Promise<void> {
-	const results = runSecurityChecks();
+	let timeoutMs: number;
+	try {
+		timeoutMs = securityCheckTimeoutMs();
+	} catch (err) {
+		console.error(err instanceof Error ? err.message : String(err));
+		process.exit(2);
+	}
+	const results = runSecurityChecks(
+		defaultSecurityChecks(),
+		repoRoot(),
+		timeoutMs,
+	);
 	const summary = summarizeSecurity(results);
 	console.log(
 		JSON.stringify({

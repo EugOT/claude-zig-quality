@@ -79,6 +79,21 @@ function repoRel(root: string, path: string): string {
 	return relative(root, path).replaceAll("\\", "/");
 }
 
+function assertRealPathInsideRepo(
+	root: string,
+	path: string,
+	flag: string,
+): void {
+	const realRoot = realpathSync(root);
+	const realPath = realpathSync(path);
+	const realRel = relative(realRoot, realPath);
+	if (realRel === "" || realRel.startsWith("..") || isAbsolute(realRel)) {
+		throw new Error(
+			`${flag} resolves through a symlink outside the repository`,
+		);
+	}
+}
+
 function isGeneratedCoveragePath(root: string, path: string): boolean {
 	const rel = repoRel(root, path);
 	return (
@@ -142,6 +157,28 @@ export function coverageStem(target: string): string {
 	const readable = stem.length > 0 ? stem : "target";
 	const digest = createHash("sha256").update(target).digest("hex").slice(0, 8);
 	return `${readable}_${digest}`;
+}
+
+export function resolveCoverageTarget(
+	root: string,
+	target: string,
+): { source: string; targetRel: string } {
+	if (isAbsolute(target)) {
+		throw new Error("--target must be a repo-local .zig file");
+	}
+	const source = resolveRepoChild(root, target, "--target");
+	const targetRel = repoRel(root, source);
+	if (
+		targetRel.startsWith("../") ||
+		targetRel === ".." ||
+		isAbsolute(targetRel)
+	) {
+		throw new Error("--target must stay inside the repository");
+	}
+	if (!targetRel.endsWith(".zig")) {
+		throw new Error("--target must be a repo-local .zig file");
+	}
+	return { source, targetRel };
 }
 
 export function parseCoverageArgs(argv: string[]): CoverageOptions {
@@ -347,30 +384,90 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 	};
 }
 
-export async function readSummary(outputDir: string): Promise<CoverageSummary> {
-	const candidates = ["index.json", "coverage.json", "summary.json"].map(
-		(name) => resolve(outputDir, name),
+type ParsedCoverageSummary = CoverageSummary & {
+	path: string;
+	topLevel: boolean;
+};
+
+function mergeCoverageSummaries(
+	summaries: ParsedCoverageSummary[],
+): CoverageSummary | null {
+	const countedNested = summaries.filter(
+		(summary) =>
+			!summary.topLevel &&
+			summary.coveredLines !== null &&
+			summary.totalLines !== null &&
+			summary.totalLines > 0,
 	);
+	const counted =
+		countedNested.length > 0
+			? countedNested
+			: summaries.filter(
+					(summary) =>
+						summary.coveredLines !== null &&
+						summary.totalLines !== null &&
+						summary.totalLines > 0,
+				);
+	if (counted.length === 0) return null;
+	if (counted.length === 1) {
+		const [summary] = counted;
+		return {
+			linePercent: summary.linePercent,
+			coveredLines: summary.coveredLines,
+			totalLines: summary.totalLines,
+			source: summary.path,
+		};
+	}
+	let coveredLines = 0;
+	let totalLines = 0;
+	for (const summary of counted) {
+		coveredLines += summary.coveredLines ?? 0;
+		totalLines += summary.totalLines ?? 0;
+	}
+	return {
+		linePercent: totalLines > 0 ? (coveredLines / totalLines) * 100 : null,
+		coveredLines,
+		totalLines,
+		source: `merged:${counted.length}`,
+	};
+}
+
+export async function readSummary(outputDir: string): Promise<CoverageSummary> {
+	const candidates = new Map<string, boolean>();
+	for (const name of ["index.json", "coverage.json", "summary.json"]) {
+		candidates.set(resolve(outputDir, name), true);
+	}
 	for (const pattern of ["**/coverage.json", "**/index.json"]) {
 		const glob = new Bun.Glob(pattern);
 		for (const path of [
 			...glob.scanSync({ cwd: outputDir, absolute: true }),
 		].sort()) {
-			candidates.push(path);
+			if (!candidates.has(path)) candidates.set(path, false);
 		}
 	}
+	const summaries: ParsedCoverageSummary[] = [];
 	let best: CoverageSummary | null = null;
-	for (const path of candidates) {
+	for (const [path, topLevel] of candidates) {
 		const file = Bun.file(path);
 		if (!(await file.exists())) continue;
 		const raw = await readFile(path, "utf8");
 		const summary = parseCoverageSummary(raw);
 		if (summary.linePercent === null) continue;
-		const withSource = { ...summary, source: path };
+		const withSource = { ...summary, source: path, path, topLevel };
+		summaries.push(withSource);
 		const bestLines = best?.totalLines ?? -1;
 		const candidateLines = withSource.totalLines ?? 0;
-		if (best === null || candidateLines > bestLines) best = withSource;
+		if (best === null || candidateLines > bestLines) {
+			best = {
+				linePercent: withSource.linePercent,
+				coveredLines: withSource.coveredLines,
+				totalLines: withSource.totalLines,
+				source: path,
+			};
+		}
 	}
+	const merged = mergeCoverageSummaries(summaries);
+	if (merged !== null) return merged;
 	if (best !== null) return best;
 	return {
 		linePercent: null,
@@ -419,12 +516,29 @@ async function runZigTestCoverage(
 	const binDir = resolve(out, "bin");
 	await mkdir(binDir, { recursive: true });
 	for (const target of opts.targets) {
-		const source = resolve(root, target);
+		let resolvedTarget: { source: string; targetRel: string };
+		try {
+			resolvedTarget = resolveCoverageTarget(root, target);
+		} catch (err) {
+			console.error(
+				`coverage-linux: ${err instanceof Error ? err.message : String(err)}`,
+			);
+			return 1;
+		}
+		const { source, targetRel } = resolvedTarget;
 		if (!(await Bun.file(source).exists())) {
 			console.error(`coverage-linux: target does not exist: ${target}`);
 			return 1;
 		}
-		const stem = coverageStem(target);
+		try {
+			assertRealPathInsideRepo(root, source, "--target");
+		} catch (err) {
+			console.error(
+				`coverage-linux: ${err instanceof Error ? err.message : String(err)}`,
+			);
+			return 1;
+		}
+		const stem = coverageStem(targetRel);
 		const bin = resolve(binDir, `${stem}-test`);
 		const compile = spawnSync(zigTestCompileArgs(source, bin), {
 			cwd: root,

@@ -548,7 +548,7 @@ const workflow = {
 		{
 			id: "qa-validation",
 			issueIds: ["CEL-465"],
-			status: "complete",
+			status: "pending-validation",
 			scope:
 				"Run final validation matrix, collect command results, and propose PR split after implementation slices settle.",
 			dependencies: [
@@ -568,6 +568,7 @@ const workflow = {
 			],
 			blockers: [
 				"CI workflow run result is remote state and must be fetched live after PR publication before claiming merge-authoritative green.",
+				"Coverage, platform, and CI/security implementation threads are still pending validation.",
 			],
 			readGlobs: ["**/*"],
 			writeGlobs: [],
@@ -721,6 +722,21 @@ function assertWorkflow(program: WorkflowProgram): void {
 		}
 	}
 	assertAcyclicThreads(program);
+
+	const statusByThread = new Map(
+		program.threads.map((thread) => [thread.id, thread.status] as const),
+	);
+	for (const thread of program.threads) {
+		if (thread.status !== "complete") continue;
+		if (thread.blockers.length > 0) {
+			throw new Error(`${thread.id} is complete but still lists blockers`);
+		}
+		for (const dep of thread.dependencies) {
+			if (statusByThread.get(dep) !== "complete") {
+				throw new Error(`${thread.id} is complete before dependency ${dep}`);
+			}
+		}
+	}
 
 	const ownedGlobs: Array<{ thread: ThreadId; glob: string }> = [];
 	for (const thread of program.threads) {

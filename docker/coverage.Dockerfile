@@ -15,7 +15,8 @@ RUN set -eu; \
 	dnf -y \
 		--disablerepo='*' \
 		--repofrompath=fedora-release,"${fedora_release_repo}" \
-		--setopt=fedora-release.gpgcheck=0 \
+		--setopt=fedora-release.gpgcheck=1 \
+		--setopt=fedora-release.gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-43-primary \
 		--setopt=install_weak_deps=False \
 		install \
 		bash-5.3.0-2.fc43 \

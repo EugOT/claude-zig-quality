@@ -53,7 +53,9 @@ jobs:
         run: bun scripts/verify-pr.ts
 
       - name: Security scan
+        if: ${{ always() }}
         run: bun scripts/security-scan.ts
 
       - name: Coverage
+        if: ${{ always() }}
         run: bun scripts/coverage-docker.ts --fail-under-lines 95

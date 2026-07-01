@@ -24,6 +24,7 @@ test("coverage-security workflow runs the repo-owned gates", async () => {
 		expect(text).toContain("bun scripts/verify-pr.ts");
 		expect(text).toContain("bun scripts/security-scan.ts");
 		expect(text).toContain("bun scripts/coverage-docker.ts");
+		expect(text).toMatch(/if: \$\{\{ always\(\) \}\}/);
 	}
 });
 

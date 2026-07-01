@@ -22,12 +22,19 @@ function takeValue(argv: string[], index: number, flag: string): string {
 	return value;
 }
 
+export function envOrDefault(
+	value: string | undefined,
+	fallback: string,
+): string {
+	return value && value.length > 0 ? value : fallback;
+}
+
 export function parseCoverageDockerArgs(argv: string[]): CoverageDockerArgs {
 	const args: CoverageDockerArgs = {
 		build: !argv.includes("--no-build"),
-		failUnderLines: process.env.ZIG_QM_COVERAGE_THRESHOLD ?? "95",
-		image: process.env.ZIG_QM_COVERAGE_IMAGE ?? DEFAULT_IMAGE,
-		platform: process.env.ZIG_QM_COVERAGE_PLATFORM,
+		failUnderLines: envOrDefault(process.env.ZIG_QM_COVERAGE_THRESHOLD, "95"),
+		image: envOrDefault(process.env.ZIG_QM_COVERAGE_IMAGE, DEFAULT_IMAGE),
+		platform: process.env.ZIG_QM_COVERAGE_PLATFORM || undefined,
 	};
 
 	for (let i = 0; i < argv.length; i++) {
@@ -115,6 +122,7 @@ export function shellQuote(value: string): string {
 function runCoverage(root: string, args: CoverageDockerArgs): number {
 	const uid = process.getuid?.() ?? 1000;
 	const gid = process.getgid?.() ?? 1000;
+	const containerName = `zq-coverage-${process.pid}-${Date.now()}`;
 	const inner = [
 		"set -euo pipefail",
 		'mkdir -p "$HOME" "$BUN_INSTALL_CACHE_DIR" "$XDG_CACHE_HOME"',
@@ -130,6 +138,8 @@ function runCoverage(root: string, args: CoverageDockerArgs): number {
 		"docker",
 		"run",
 		"--rm",
+		"--name",
+		containerName,
 		"--init",
 		"--cap-add",
 		"SYS_PTRACE",
@@ -160,6 +170,12 @@ function runCoverage(root: string, args: CoverageDockerArgs): number {
 	process.stderr.write(result.stderr);
 	if (result.timedOut) {
 		console.error(`docker run timed out after ${DOCKER_RUN_TIMEOUT_MS}ms`);
+		const cleaned = spawnSync(["docker", "rm", "-f", containerName], {
+			cwd: root,
+			timeout: DOCKER_INFO_TIMEOUT_MS,
+		});
+		process.stdout.write(cleaned.stdout);
+		process.stderr.write(cleaned.stderr);
 		return 124;
 	}
 	return result.code ?? 1;

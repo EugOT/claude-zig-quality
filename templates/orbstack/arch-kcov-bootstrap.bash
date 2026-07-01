@@ -13,6 +13,8 @@ set -euo pipefail
 
 sudo pacman -Syu --noconfirm --needed git curl ca-certificates unzip kcov
 
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
+
 command -v mise >/dev/null 2>&1 || {
 	echo "install mise from a pinned package or checksum-verified artifact before running this template" >&2
 	exit 1
@@ -22,7 +24,6 @@ command -v bun >/dev/null 2>&1 || {
 	exit 1
 }
 
-export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
 mise use -g zig@0.16.0
 
 mise x zig@0.16.0 -- zig version

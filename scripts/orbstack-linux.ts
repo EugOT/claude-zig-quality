@@ -19,7 +19,12 @@ const ORBSTACK_CREATE_TIMEOUT_MS = 300_000;
 const ORBSTACK_RUN_TIMEOUT_MS = 900_000;
 
 export function imageHasKcov(image: string): boolean {
-	return !/^ubuntu(?::|@)/.test(image);
+	const normalized = image.toLowerCase();
+	return (
+		normalized === "archlinux:base" ||
+		normalized.startsWith("archlinux:base@") ||
+		normalized.startsWith("archlinux:base-")
+	);
 }
 
 export function defaultLinuxCommand(
