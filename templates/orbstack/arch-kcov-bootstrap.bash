@@ -5,7 +5,8 @@
 #   orb -m zig-qm-arch bash /path/to/templates/orbstack/arch-kcov-bootstrap.bash
 #
 # Keep the image reference above in sync with DEFAULT_IMAGE in
-# scripts/orbstack-linux.ts.
+# scripts/orbstack-linux.ts. Review and refresh this digest monthly with the
+# OrbStack coverage lane so package trust does not drift stale.
 #
 # Arch Linux ARM publishes kcov in the regular package repository; this keeps
 # the local coverage lane package-based instead of requiring a source build.

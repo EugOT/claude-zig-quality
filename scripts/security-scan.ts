@@ -14,6 +14,37 @@ export type SecurityResult = SecurityCheck & {
 	code: number | null;
 };
 
+function shellQuote(value: string): string {
+	return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+export function gitDiffCheckCommand(
+	env: Record<string, string | undefined> = process.env,
+): string[] {
+	const explicitRange = env.SECURITY_SCAN_GIT_DIFF_RANGE;
+	if (explicitRange && explicitRange.length > 0) {
+		return ["git", "diff", "--check", explicitRange];
+	}
+	const baseSha = env.GITHUB_BASE_SHA ?? env.CI_MERGE_REQUEST_DIFF_BASE_SHA;
+	if (baseSha && baseSha.length > 0) {
+		return ["git", "diff", "--check", `${baseSha}...HEAD`];
+	}
+	const baseRef =
+		env.GITHUB_BASE_REF ??
+		env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME ??
+		env.CI_DEFAULT_BRANCH;
+	if (baseRef && baseRef.length > 0) {
+		const remoteBase = baseRef.includes("/") ? baseRef : `origin/${baseRef}`;
+		const quotedBase = shellQuote(remoteBase);
+		return [
+			"sh",
+			"-c",
+			`base=$(git merge-base HEAD ${quotedBase} 2>/dev/null || printf %s ${quotedBase}); git diff --check "$base"...HEAD`,
+		];
+	}
+	return ["git", "diff", "--check"];
+}
+
 export function defaultSecurityChecks(): SecurityCheck[] {
 	// Required checks stay in the default suite even when a tool is absent;
 	// `runSecurityChecks` records the missing tool as skipped and the summary
@@ -26,7 +57,7 @@ export function defaultSecurityChecks(): SecurityCheck[] {
 	const checks: SecurityCheck[] = [
 		{
 			name: "git-diff-check",
-			command: ["git", "diff", "--check"],
+			command: gitDiffCheckCommand(),
 			required: true,
 		},
 		{

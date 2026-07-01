@@ -24,7 +24,12 @@ test("coverage-security workflow runs the repo-owned gates", async () => {
 		expect(text).toContain("bun scripts/verify-pr.ts");
 		expect(text).toContain("bun scripts/security-scan.ts");
 		expect(text).toContain("bun scripts/coverage-docker.ts");
-		expect(text).toMatch(/if: \$\{\{ always\(\) \}\}/);
+		expect(text).toContain("permissions:");
+		expect(text).toContain("contents: read");
+		expect(text).toContain(
+			"actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+		);
+		expect(text).toContain("steps.pr-gate.outcome == 'success'");
 	}
 });
 

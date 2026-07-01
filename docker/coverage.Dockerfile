@@ -12,11 +12,15 @@ ARG ZIG_SHA256_ARM64=ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e15
 
 RUN set -eu; \
 	fedora_release_repo="https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Everything/$(rpm --eval '%{_arch}')/os/"; \
+	fedora_updates_repo="https://dl.fedoraproject.org/pub/fedora/linux/updates/43/Everything/$(rpm --eval '%{_arch}')/"; \
 	dnf -y \
 		--disablerepo='*' \
 		--repofrompath=fedora-release,"${fedora_release_repo}" \
 		--setopt=fedora-release.gpgcheck=1 \
 		--setopt=fedora-release.gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-43-primary \
+		--repofrompath=fedora-updates,"${fedora_updates_repo}" \
+		--setopt=fedora-updates.gpgcheck=1 \
+		--setopt=fedora-updates.gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-43-primary \
 		--setopt=install_weak_deps=False \
 		install \
 		bash-5.3.0-2.fc43 \

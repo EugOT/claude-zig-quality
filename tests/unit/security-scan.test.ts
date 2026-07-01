@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	defaultSecurityChecks,
+	gitDiffCheckCommand,
 	runSecurityChecks,
 	type SecurityResult,
 	securityCheckTimeoutMs,
@@ -145,6 +146,24 @@ describe("security-scan runner", () => {
 		expect(() => securityCheckTimeoutMs("not-a-number")).toThrow(
 			"positive number",
 		);
+	});
+
+	test("uses commit-range git diff checks in CI", () => {
+		expect(
+			gitDiffCheckCommand({ SECURITY_SCAN_GIT_DIFF_RANGE: "main...HEAD" }),
+		).toEqual(["git", "diff", "--check", "main...HEAD"]);
+		expect(gitDiffCheckCommand({ GITHUB_BASE_SHA: "abc123" })).toEqual([
+			"git",
+			"diff",
+			"--check",
+			"abc123...HEAD",
+		]);
+		const mergeBaseCommand = gitDiffCheckCommand({ GITHUB_BASE_REF: "main" });
+		expect(mergeBaseCommand[0]).toBe("sh");
+		expect(mergeBaseCommand.at(-1)).toContain(
+			"git merge-base HEAD 'origin/main'",
+		);
+		expect(mergeBaseCommand.at(-1)).toContain("git diff --check");
 	});
 
 	test("marks missing tools as skipped", () => {

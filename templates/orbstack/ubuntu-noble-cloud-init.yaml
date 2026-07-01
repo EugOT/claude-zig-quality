@@ -1,3 +1,4 @@
+#cloud-config
 # Template only. Copy into host provisioning if you want a reusable OrbStack
 # Linux machine for Zig quality gates.
 package_update: true
@@ -9,9 +10,10 @@ packages:
 runcmd:
   - |
     set -e
-    login_user="${ORBSTACK_LOGIN_USER:-orb}"
+    test -n "${ORBSTACK_LOGIN_USER:-}" || { echo "set ORBSTACK_LOGIN_USER to the target login account before using this template" >&2; exit 1; }
+    login_user="$ORBSTACK_LOGIN_USER"
     login_home="$(getent passwd "$login_user" | cut -d: -f6)"
-    test -n "$login_home"
+    test -n "$login_home" || { echo "ORBSTACK_LOGIN_USER=$login_user does not exist" >&2; exit 1; }
     sudo -H -u "$login_user" env PATH="$login_home/.local/bin:$login_home/.bun/bin:$PATH" bash -lc '
       set -e
       export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"

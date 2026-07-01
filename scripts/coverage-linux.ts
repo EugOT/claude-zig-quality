@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { createHash } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { platformFacts } from "./lib/platform.ts";
@@ -86,6 +86,36 @@ function repoRel(root: string, path: string): string {
 	return relative(root, path).replaceAll("\\", "/");
 }
 
+function assertNoSymlinkAncestors(
+	root: string,
+	path: string,
+	flag: string,
+	opts: { includeSelf?: boolean } = {},
+): void {
+	const rel = repoRel(root, path);
+	const parts = rel.split("/").filter((part) => part.length > 0);
+	const limit = opts.includeSelf ? parts.length : Math.max(0, parts.length - 1);
+	let current = root;
+	for (const part of parts.slice(0, limit)) {
+		current = resolve(current, part);
+		try {
+			if (lstatSync(current).isSymbolicLink()) {
+				throw new Error(`${flag} must not use symlink ancestors`);
+			}
+		} catch (err) {
+			if (
+				err &&
+				typeof err === "object" &&
+				"code" in err &&
+				err.code === "ENOENT"
+			) {
+				return;
+			}
+			throw err;
+		}
+	}
+}
+
 function assertRealPathInsideRepo(
 	root: string,
 	path: string,
@@ -113,6 +143,7 @@ function isGeneratedCoveragePath(root: string, path: string): boolean {
 
 export function resolveSummaryOutput(root: string, value: string): string {
 	const summaryPath = resolveRepoChild(root, value, "--summary-output");
+	assertNoSymlinkAncestors(root, summaryPath, "--summary-output");
 	const rel = repoRel(root, summaryPath);
 	if (
 		rel !== "coverage/summary.json" &&
@@ -131,6 +162,7 @@ export function assertSafeCoverageOutput(
 	outputDir: string,
 ): void {
 	const rel = repoRel(root, outputDir);
+	assertNoSymlinkAncestors(root, outputDir, "--output", { includeSelf: true });
 	if (!isGeneratedCoveragePath(root, outputDir)) {
 		throw new Error(
 			"--output must be under zig-out/coverage/ or coverage/kcov/",
@@ -333,6 +365,22 @@ function numberFromUnknown(
 	return null;
 }
 
+function validLineCounts(
+	coveredLines: number | null,
+	totalLines: number | null,
+): { coveredLines: number; totalLines: number } | null {
+	if (
+		coveredLines === null ||
+		totalLines === null ||
+		totalLines <= 0 ||
+		coveredLines < 0 ||
+		coveredLines > totalLines
+	) {
+		return null;
+	}
+	return { coveredLines, totalLines };
+}
+
 function parseCoverageFiles(
 	doc: Record<string, unknown>,
 ): CoverageFileSummary[] {
@@ -344,18 +392,12 @@ function parseCoverageFiles(
 		const entry = rawFile as Record<string, unknown>;
 		const file = entry.file;
 		if (typeof file !== "string" || file.length === 0) continue;
-		const coveredLines = numberFromUnknown(entry.covered_lines);
-		const totalLines = numberFromUnknown(entry.total_lines);
-		if (
-			coveredLines === null ||
-			totalLines === null ||
-			totalLines <= 0 ||
-			coveredLines < 0 ||
-			coveredLines > totalLines
-		) {
-			continue;
-		}
-		files.push({ file, coveredLines, totalLines });
+		const counts = validLineCounts(
+			numberFromUnknown(entry.covered_lines),
+			numberFromUnknown(entry.total_lines),
+		);
+		if (counts === null) continue;
+		files.push({ file, ...counts });
 	}
 	return files;
 }
@@ -374,10 +416,14 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 	for (const candidate of candidates) {
 		const n = numberFromUnknown(candidate, { percent: true });
 		if (n !== null) {
+			const counts = validLineCounts(
+				numberFromUnknown(doc.covered_lines),
+				numberFromUnknown(doc.total_lines),
+			);
 			return {
 				linePercent: n,
-				coveredLines: numberFromUnknown(doc.covered_lines),
-				totalLines: numberFromUnknown(doc.total_lines),
+				coveredLines: counts?.coveredLines ?? null,
+				totalLines: counts?.totalLines ?? null,
 				source: "json",
 				...(files.length > 0 ? { files } : {}),
 			};
@@ -390,36 +436,36 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 			numberFromUnknown(totals.lines, { percent: true }) ??
 			numberFromUnknown(totals.line_coverage, { percent: true });
 		if (n !== null) {
+			const counts = validLineCounts(
+				numberFromUnknown(totals.covered_lines),
+				numberFromUnknown(totals.total_lines),
+			);
 			return {
 				linePercent: n,
-				coveredLines: numberFromUnknown(totals.covered_lines),
-				totalLines: numberFromUnknown(totals.total_lines),
+				coveredLines: counts?.coveredLines ?? null,
+				totalLines: counts?.totalLines ?? null,
 				source: "json.totals",
 				...(files.length > 0 ? { files } : {}),
 			};
 		}
 	}
-	const coveredLines = numberFromUnknown(doc.covered_lines);
-	const totalLines = numberFromUnknown(doc.total_lines);
-	if (
-		coveredLines !== null &&
-		totalLines !== null &&
-		totalLines > 0 &&
-		coveredLines >= 0 &&
-		coveredLines <= totalLines
-	) {
+	const counts = validLineCounts(
+		numberFromUnknown(doc.covered_lines),
+		numberFromUnknown(doc.total_lines),
+	);
+	if (counts !== null) {
 		return {
-			linePercent: (coveredLines / totalLines) * 100,
-			coveredLines,
-			totalLines,
+			linePercent: (counts.coveredLines / counts.totalLines) * 100,
+			coveredLines: counts.coveredLines,
+			totalLines: counts.totalLines,
 			source: "json.counts",
 			...(files.length > 0 ? { files } : {}),
 		};
 	}
 	return {
 		linePercent: null,
-		coveredLines,
-		totalLines,
+		coveredLines: null,
+		totalLines: null,
 		source: "json",
 		...(files.length > 0 ? { files } : {}),
 	};
@@ -557,7 +603,11 @@ export async function readSummary(outputDir: string): Promise<CoverageSummary> {
 
 export async function assertSafeSummaryOutput(
 	summaryPath: string,
+	root?: string,
 ): Promise<void> {
+	if (root !== undefined) {
+		assertNoSymlinkAncestors(root, summaryPath, "--summary-output");
+	}
 	const summaryStat = await lstat(summaryPath).catch((err: unknown) => {
 		if (
 			err &&
@@ -581,7 +631,7 @@ async function emitSummary(
 ) {
 	const summaryPath = resolveSummaryOutput(root, opts.summaryOutput);
 	await mkdir(dirname(summaryPath), { recursive: true });
-	await assertSafeSummaryOutput(summaryPath);
+	await assertSafeSummaryOutput(summaryPath, root);
 	await writeFile(summaryPath, `${JSON.stringify(event, null, 2)}\n`);
 	console.log(JSON.stringify(event));
 }

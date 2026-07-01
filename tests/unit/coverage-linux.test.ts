@@ -161,6 +161,22 @@ describe("coverage-linux argument parsing", () => {
 		).toThrow("symlink outside the repository");
 	});
 
+	test("rejects in-repo symlink ancestors for generated paths", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-root-"));
+		await mkdir(join(root, "real-coverage"), { recursive: true });
+		await symlink(join(root, "real-coverage"), join(root, "coverage"));
+		expect(() => resolveSummaryOutput(root, "coverage/summary.json")).toThrow(
+			"symlink ancestors",
+		);
+
+		const root2 = await mkdtemp(join(tmpdir(), "coverage-root-"));
+		await mkdir(join(root2, "real-zig-out"), { recursive: true });
+		await symlink(join(root2, "real-zig-out"), join(root2, "zig-out"));
+		expect(() =>
+			assertSafeCoverageOutput(root2, join(root2, "zig-out/coverage/kcov")),
+		).toThrow("symlink ancestors");
+	});
+
 	test("rejects option-looking flag values", () => {
 		expect(() =>
 			parseCoverageArgs(["--summary-output", "--allow-non-linux"]),
@@ -190,6 +206,15 @@ describe("coverage-linux argument parsing", () => {
 		await expect(assertSafeSummaryOutput(link)).rejects.toThrow(
 			"must not be a symbolic link",
 		);
+	});
+
+	test("summary output rejects symlink ancestors", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-root-"));
+		await mkdir(join(root, "real-coverage"), { recursive: true });
+		await symlink(join(root, "real-coverage"), join(root, "coverage"));
+		await expect(
+			assertSafeSummaryOutput(join(root, "coverage/summary.json"), root),
+		).rejects.toThrow("symlink ancestors");
 	});
 
 	test("coverage output cleanup is limited to generated coverage directories", async () => {
@@ -314,6 +339,29 @@ describe("coverage summary parsing", () => {
 		expect(
 			parseCoverageSummary('{"line_coverage": "%"}').linePercent,
 		).toBeNull();
+	});
+
+	test("omits invalid line counts from percentage summaries", () => {
+		expect(
+			parseCoverageSummary(
+				'{"percent_covered":"90","covered_lines":11,"total_lines":10}',
+			),
+		).toEqual({
+			linePercent: 90,
+			coveredLines: null,
+			totalLines: null,
+			source: "json",
+		});
+		expect(
+			parseCoverageSummary(
+				'{"totals":{"lines":90,"covered_lines":-1,"total_lines":10}}',
+			),
+		).toEqual({
+			linePercent: 90,
+			coveredLines: null,
+			totalLines: null,
+			source: "json.totals",
+		});
 	});
 
 	test("reads nested kcov index summaries", async () => {

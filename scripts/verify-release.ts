@@ -173,11 +173,13 @@ export function validateSbom(
 			.map((c) => (typeof c?.name === "string" ? c.name : null))
 			.filter((n): n is string => n !== null),
 	);
-	for (const dep of declaredDeps) {
-		if (!componentNames.has(dep)) {
-			errors.push(
-				`declared dependency "${dep}" is not present as an SBOM component`,
-			);
+	if (componentsPresent) {
+		for (const dep of declaredDeps) {
+			if (!componentNames.has(dep)) {
+				errors.push(
+					`declared dependency "${dep}" is not present as an SBOM component`,
+				);
+			}
 		}
 	}
 

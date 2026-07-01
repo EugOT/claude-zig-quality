@@ -150,7 +150,10 @@ describe("orbstack-linux command builder", () => {
 		expect(text).toContain(
 			'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"',
 		);
-		expect(text).toMatch(/login_user="\$\{ORBSTACK_LOGIN_USER:-orb\}"/);
+		expect(text).toContain("#cloud-config");
+		expect(text).toContain("set ORBSTACK_LOGIN_USER");
+		expect(text).toContain('login_user="$ORBSTACK_LOGIN_USER"');
+		expect(text).toContain("does not exist");
 		expect(text).toContain('sudo -H -u "$login_user"');
 		expect(text).toContain("command -v mise");
 		expect(text).toContain("command -v bun");

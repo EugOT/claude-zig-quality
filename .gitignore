@@ -12,6 +12,8 @@ coverage/
 # Agent scratch (not committed)
 !.claude/
 .claude/*
+!.claude/hooks/
+!.claude/hooks/**
 !.claude/skills/
 !.claude/skills/**
 .agent/scratch/

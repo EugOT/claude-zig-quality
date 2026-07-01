@@ -15,13 +15,16 @@ jobs:
     name: Linux coverage and security
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
 
       - name: Install mise
+        id: install-mise
         run: |
           curl -fsSL https://mise.run -o /tmp/mise-install.sh
           echo "dc98fcc7af7c104b652b7ddea54f3d15cf2ef74948a7e82b754c647b04ad38f8  /tmp/mise-install.sh" | sha256sum -c -
@@ -29,6 +32,7 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install Bun
+        id: install-bun
         run: |
           curl -fsSL https://bun.sh/install -o /tmp/bun-install.sh
           echo "bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd  /tmp/bun-install.sh" | sha256sum -c -
@@ -36,9 +40,11 @@ jobs:
           echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
       - name: Install Zig 0.16.0 via mise
+        id: install-zig
         run: mise use -g zig@0.16.0
 
       - name: Bun install
+        id: bun-install
         run: |
           set +e
           bun install --frozen-lockfile
@@ -50,12 +56,13 @@ jobs:
           fi
 
       - name: PR gate
+        id: pr-gate
         run: bun scripts/verify-pr.ts
 
       - name: Security scan
-        if: ${{ always() }}
+        if: ${{ always() && steps.install-mise.outcome == 'success' && steps.install-bun.outcome == 'success' && steps.install-zig.outcome == 'success' && steps.bun-install.outcome == 'success' && steps.pr-gate.outcome == 'success' }}
         run: bun scripts/security-scan.ts
 
       - name: Coverage
-        if: ${{ always() }}
+        if: ${{ always() && steps.install-mise.outcome == 'success' && steps.install-bun.outcome == 'success' && steps.install-zig.outcome == 'success' && steps.bun-install.outcome == 'success' && steps.pr-gate.outcome == 'success' }}
         run: bun scripts/coverage-docker.ts --fail-under-lines 95
