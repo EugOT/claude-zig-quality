@@ -69,8 +69,9 @@ export function platformFacts(opts: PlatformDetectOptions = {}): PlatformFacts {
 	const env = opts.env ?? process.env;
 	const platform = opts.platform ?? process.platform;
 	const lane = detectPlatformLane({ env, platform });
-	const ci = truthyEnv(env.CI);
+	const ci = truthyEnv(env.CI) || lane === "ci-linux";
 	const orbstack = lane === "orbstack-linux";
+	const linuxAuthority = lane === "orbstack-linux" || lane === "ci-linux";
 	const notes: string[] = [];
 
 	if (lane === "macos-native") {
@@ -92,8 +93,8 @@ export function platformFacts(opts: PlatformDetectOptions = {}): PlatformFacts {
 		platform,
 		ci,
 		orbstack,
-		fuzzAuthority: lane === "orbstack-linux" || lane === "ci-linux",
-		coverageAuthority: lane === "orbstack-linux" || lane === "ci-linux",
+		fuzzAuthority: linuxAuthority,
+		coverageAuthority: linuxAuthority,
 		securityAuthority: lane === "ci-linux",
 		notes,
 	};

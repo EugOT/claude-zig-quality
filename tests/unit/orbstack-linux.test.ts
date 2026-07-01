@@ -48,6 +48,12 @@ describe("orbstack-linux command builder", () => {
 		expect(opts.dryRun).toBe(true);
 	});
 
+	test("rejects option-looking values", () => {
+		expect(() => parseOrbStackArgs(["--machine", "--dry-run"])).toThrow(
+			"--machine requires a value",
+		);
+	});
+
 	test("builds orb argv", () => {
 		expect(orbCreateArgs({ image: "ubuntu:noble", machine: "zq" })).toEqual([
 			"orb",
@@ -74,7 +80,7 @@ describe("orbstack-linux command builder", () => {
 			resolve(repoRoot(), "templates/orbstack/arch-kcov-bootstrap.bash"),
 			"utf8",
 		);
-		expect(text).toContain("pacman -Sy --noconfirm --needed");
+		expect(text).toContain("pacman -Syu --noconfirm --needed");
 		expect(text).toContain("kcov");
 		expect(text).toContain("mise use -g zig@0.16.0");
 	});

@@ -46,3 +46,6 @@ RUN set -eu; \
 	bun --version
 
 WORKDIR /work
+
+RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin zq
+USER zq

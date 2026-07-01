@@ -157,7 +157,7 @@ export function validateSbom(
 		typeof obj.specVersion === "string" ? obj.specVersion : "";
 	if (specVersion === "") errors.push("missing/empty specVersion");
 
-	const componentsRaw = obj.components;
+	const componentsRaw = obj.components === null ? undefined : obj.components;
 	const components =
 		componentsRaw === undefined
 			? null

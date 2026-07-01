@@ -433,7 +433,7 @@ const workflow = {
 				"CI workflow run result is remote state and must be fetched live after PR publication before claiming merge-authoritative green.",
 			],
 			readGlobs: ["**/*"],
-			writeGlobs: ["tests/**/*.ts", "doc/**/*.md"],
+			writeGlobs: [],
 			forbiddenGlobs: ["scripts/verify-release.ts"],
 			commands: [
 				{
@@ -563,17 +563,19 @@ function assertWorkflow(program: WorkflowProgram): void {
 			}
 		}
 	}
+	assertAcyclicThreads(program);
 
-	const owners = new Map<string, ThreadId>();
+	const ownedGlobs: Array<{ thread: ThreadId; glob: string }> = [];
 	for (const thread of program.threads) {
 		for (const glob of thread.writeGlobs) {
-			const current = owners.get(glob);
-			if (current && current !== thread.id) {
+			for (const owner of ownedGlobs) {
+				if (owner.thread !== thread.id && globsMayOverlap(owner.glob, glob)) {
 				throw new Error(
-					`write ownership conflict for ${glob}: ${current} and ${thread.id}`,
+						`write ownership conflict: ${owner.thread} owns ${owner.glob}, ${thread.id} owns ${glob}`,
 				);
 			}
-			owners.set(glob, thread.id);
+			}
+			ownedGlobs.push({ thread: thread.id, glob });
 		}
 		for (const forbidden of thread.forbiddenGlobs) {
 			if (thread.writeGlobs.includes(forbidden)) {
@@ -588,6 +590,45 @@ function assertWorkflow(program: WorkflowProgram): void {
 	if (approvalTargets.length === 0) {
 		throw new Error("workflow has no approval-gated targets");
 	}
+}
+
+function globPrefix(glob: string): string {
+	const wildcard = glob.search(/[*[{]/);
+	const prefix = wildcard === -1 ? glob : glob.slice(0, wildcard);
+	return prefix.replace(/\/+$/, "");
+}
+
+function globsMayOverlap(left: string, right: string): boolean {
+	if (left === right || left === "**/*" || right === "**/*") return true;
+	const leftPrefix = globPrefix(left);
+	const rightPrefix = globPrefix(right);
+	if (leftPrefix.length === 0 || rightPrefix.length === 0) return true;
+	return (
+		leftPrefix.startsWith(`${rightPrefix}/`) ||
+		rightPrefix.startsWith(`${leftPrefix}/`) ||
+		leftPrefix === rightPrefix
+	);
+}
+
+function assertAcyclicThreads(program: WorkflowProgram): void {
+	const byId = new Map(program.threads.map((thread) => [thread.id, thread]));
+	const visiting = new Set<ThreadId>();
+	const visited = new Set<ThreadId>();
+
+	const visit = (id: ThreadId, path: ThreadId[]): void => {
+		if (visited.has(id)) return;
+		if (visiting.has(id)) {
+			throw new Error(`thread dependency cycle: ${[...path, id].join(" -> ")}`);
+		}
+		visiting.add(id);
+		const thread = byId.get(id);
+		if (!thread) throw new Error(`unknown thread ${id}`);
+		for (const dep of thread.dependencies) visit(dep, [...path, id]);
+		visiting.delete(id);
+		visited.add(id);
+	};
+
+	for (const thread of program.threads) visit(thread.id, []);
 }
 
 assertWorkflow(workflow);

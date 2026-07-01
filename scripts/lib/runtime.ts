@@ -125,6 +125,7 @@ export type SpawnOpts = {
 	cwd?: string;
 	env?: Record<string, string>;
 	stdin?: "inherit" | "ignore";
+	timeout?: number;
 };
 
 export type SpawnResult = {
@@ -146,6 +147,7 @@ export function spawnSync(cmd: string[], opts: SpawnOpts = {}): SpawnResult {
 			stdout: "pipe",
 			stderr: "pipe",
 			stdin: opts.stdin ?? "ignore",
+			timeout: opts.timeout,
 		});
 		return {
 			code: proc.exitCode,

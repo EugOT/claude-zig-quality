@@ -8,15 +8,16 @@
 # the local coverage lane package-based instead of requiring a source build.
 set -euo pipefail
 
-sudo pacman -Sy --noconfirm --needed git curl ca-certificates unzip kcov
+sudo pacman -Syu --noconfirm --needed git curl ca-certificates unzip kcov
 
-if ! command -v mise >/dev/null 2>&1; then
-	curl https://mise.run | sh
-fi
-
-if ! command -v bun >/dev/null 2>&1; then
-	curl -fsSL https://bun.sh/install | bash
-fi
+command -v mise >/dev/null 2>&1 || {
+	echo "install mise from a pinned package or checksum-verified artifact before running this template" >&2
+	exit 1
+}
+command -v bun >/dev/null 2>&1 || {
+	echo "install bun from a pinned package or checksum-verified artifact before running this template" >&2
+	exit 1
+}
 
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
 mise use -g zig@0.16.0

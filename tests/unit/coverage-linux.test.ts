@@ -3,6 +3,7 @@ import {
 	buildKcovArgs,
 	parseCoverageArgs,
 	parseCoverageSummary,
+	resolveRepoChild,
 	zigTestCompileArgs,
 } from "../../scripts/coverage-linux.ts";
 
@@ -85,17 +86,20 @@ describe("coverage-linux argument parsing", () => {
 	});
 
 	test("builds zig test compile argv", () => {
-		expect(zigTestCompileArgs("src/a.zig", "out/a-test")).toEqual([
-			"mise",
-			"x",
-			"zig@0.16.0",
-			"--",
-			"zig",
-			"test",
-			"src/a.zig",
-			"--test-no-exec",
-			"-femit-bin=out/a-test",
-		]);
+		const previous = process.env.ZIG;
+		process.env.ZIG = "/tmp/zig";
+		try {
+			expect(zigTestCompileArgs("src/a.zig", "out/a-test")).toEqual([
+				"/tmp/zig",
+				"test",
+				"src/a.zig",
+				"--test-no-exec",
+				"-femit-bin=out/a-test",
+			]);
+		} finally {
+			if (previous === undefined) delete process.env.ZIG;
+			else process.env.ZIG = previous;
+		}
 	});
 
 	test("honors explicit ZIG override for pinned containers", () => {
@@ -113,6 +117,18 @@ describe("coverage-linux argument parsing", () => {
 			if (previous === undefined) delete process.env.ZIG;
 			else process.env.ZIG = previous;
 		}
+	});
+
+	test("rejects dangerous output directories", () => {
+		expect(() => resolveRepoChild("/repo", ".", "--output")).toThrow(
+			"cannot be the repo root",
+		);
+		expect(() => resolveRepoChild("/repo", "..", "--output")).toThrow(
+			"must stay inside the repository",
+		);
+		expect(resolveRepoChild("/repo", "zig-out/coverage", "--output")).toBe(
+			"/repo/zig-out/coverage",
+		);
 	});
 });
 

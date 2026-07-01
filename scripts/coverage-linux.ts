@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { platformFacts } from "./lib/platform.ts";
 import { repoRoot, spawnSync } from "./lib/runtime.ts";
 
@@ -39,6 +39,15 @@ function takeValue(argv: string[], index: number, flag: string): string {
 	const value = argv[index + 1];
 	if (!value) throw new Error(`${flag} requires a value`);
 	return value;
+}
+
+export function resolveRepoChild(root: string, value: string, flag: string): string {
+	const resolved = resolve(root, value);
+	const rel = relative(root, resolved);
+	if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+		throw new Error(`${flag} must stay inside the repository and cannot be the repo root`);
+	}
+	return resolved;
 }
 
 export function parseCoverageArgs(argv: string[]): CoverageOptions {
@@ -264,7 +273,10 @@ async function runZigTestCoverage(
 	await mkdir(binDir, { recursive: true });
 	for (const target of opts.targets) {
 		const source = resolve(root, target);
-		if (!(await Bun.file(source).exists())) continue;
+		if (!(await Bun.file(source).exists())) {
+			console.error(`coverage-linux: target does not exist: ${target}`);
+			return 1;
+		}
 		const stem = basename(target, ".zig").replace(/[^A-Za-z0-9_-]/g, "_");
 		const bin = resolve(binDir, `${stem}-test`);
 		const compile = spawnSync(zigTestCompileArgs(source, bin), { cwd: root });
@@ -314,27 +326,57 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 		process.exit(opts.skipMissingKcov ? 0 : 127);
 	}
 
-	const out = resolve(root, opts.outputDir);
+	const out = resolveRepoChild(root, opts.outputDir, "--output");
 	await rm(out, { recursive: true, force: true });
 	await mkdir(out, { recursive: true });
 	if (opts.mode === "zig-tests") {
 		const code = await runZigTestCoverage(root, opts, out);
-		if (code !== null) process.exit(code);
+		if (code !== null) {
+			await emitSummary(root, opts, {
+				event: "coverage-linux",
+				status: "failed",
+				reason: "coverage-command-failed",
+				lane: facts.lane,
+				platform: facts.platform,
+				outputDir: out,
+			});
+			process.exit(code);
+		}
 	} else {
 		const run = spawnSync(buildKcovArgs({ ...opts, outputDir: out }), {
 			cwd: root,
 		});
 		process.stdout.write(run.stdout);
 		process.stderr.write(run.stderr);
-		if (run.code !== 0) process.exit(run.code ?? 1);
+		if (run.code !== 0) {
+			await emitSummary(root, opts, {
+				event: "coverage-linux",
+				status: "failed",
+				reason: "coverage-command-failed",
+				lane: facts.lane,
+				platform: facts.platform,
+				outputDir: out,
+			});
+			process.exit(run.code ?? 1);
+		}
 	}
 
 	const summary = await readSummary(out);
+	let status: CoverageEvent["status"] = summary.linePercent === null ? "failed" : "ok";
+	let reason =
+		summary.linePercent === null ? "coverage-summary-missing" : undefined;
+	if (
+		opts.failUnderLines !== null &&
+		summary.linePercent !== null &&
+		summary.linePercent < opts.failUnderLines
+	) {
+		status = "failed";
+		reason = "coverage-threshold";
+	}
 	const event: CoverageEvent = {
 		event: "coverage-linux",
-		status: summary.linePercent === null ? "failed" : "ok",
-		reason:
-			summary.linePercent === null ? "coverage-summary-missing" : undefined,
+		status,
+		reason,
 		lane: facts.lane,
 		platform: facts.platform,
 		linePercent: summary.linePercent,

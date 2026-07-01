@@ -7,26 +7,42 @@ const workflowPath = resolve(
 	repoRoot(),
 	".forgejo/workflows/coverage-security.yaml",
 );
+const templatePath = resolve(repoRoot(), "templates/forgejo/coverage-security.yaml");
+
+async function readWorkflowCopies(): Promise<string[]> {
+	return Promise.all([
+		readFile(workflowPath, "utf8"),
+		readFile(templatePath, "utf8"),
+	]);
+}
 
 test("coverage-security workflow runs the repo-owned gates", async () => {
-	const text = await readFile(workflowPath, "utf8");
-	expect(text).toContain("bun scripts/verify-pr.ts");
-	expect(text).toContain("bun scripts/security-scan.ts");
-	expect(text).toContain("bun scripts/coverage-docker.ts");
+	for (const text of await readWorkflowCopies()) {
+		expect(text).toContain("bun scripts/verify-pr.ts");
+		expect(text).toContain("bun scripts/security-scan.ts");
+		expect(text).toContain("bun scripts/coverage-docker.ts");
+	}
 });
 
 test("coverage-security workflow enforces measured Docker coverage", async () => {
-	const text = await readFile(workflowPath, "utf8");
-	expect(text).toContain(
-		"bun scripts/coverage-docker.ts --fail-under-lines 95",
-	);
-	expect(text).not.toContain("--skip-missing-kcov");
+	for (const text of await readWorkflowCopies()) {
+		expect(text).toContain(
+			"bun scripts/coverage-docker.ts --fail-under-lines 95",
+		);
+		expect(text).not.toContain("--skip-missing-kcov");
+	}
 });
 
 test("coverage-security workflow keeps install errors honest", async () => {
-	const text = await readFile(workflowPath, "utf8");
-	expect(text).toMatch(
-		/bun install --frozen-lockfile failed \(exit \$\{exit_code\}\)/,
-	);
-	expect(text).not.toMatch(/out of sync/i);
+	for (const text of await readWorkflowCopies()) {
+		expect(text).toMatch(
+			/bun install --frozen-lockfile failed \(exit \$\{exit_code\}\)/,
+		);
+		expect(text).not.toMatch(/out of sync/i);
+	}
+});
+
+test("coverage-security template mirrors live workflow", async () => {
+	const [live, template] = await readWorkflowCopies();
+	expect(template).toBe(live.replace(/\r\n/g, "\n"));
 });

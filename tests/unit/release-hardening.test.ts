@@ -78,6 +78,33 @@ test("validateSbom allows missing components for dependency-free projects", () =
 	expect(r.componentCount).toBe(0);
 });
 
+test("validateSbom requires components when declared dependencies exist", () => {
+	const r = validateSbom(
+		JSON.stringify({
+			bomFormat: "CycloneDX",
+			specVersion: "1.5",
+		}),
+		["ziglint"],
+	);
+	expect(r.ok).toBe(false);
+	expect(r.errors).toContain(
+		"components is required when declared dependencies exist",
+	);
+});
+
+test("validateSbom treats null components as absent", () => {
+	const r = validateSbom(
+		JSON.stringify({
+			bomFormat: "CycloneDX",
+			specVersion: "1.5",
+			components: null,
+		}),
+		[],
+	);
+	expect(r.ok).toBe(true);
+	expect(r.errors).not.toContain("components is not an array");
+});
+
 // ---- Phase 2: signingEnvError ---------------------------------------------
 
 test("signingEnvError: missing binary is an error", () => {

@@ -51,6 +51,22 @@ describe("security-scan summary", () => {
 			failedRequired: [],
 		});
 	});
+
+	test("fails when required checks are skipped", () => {
+		const results: SecurityResult[] = [
+			{
+				name: "required-missing",
+				command: ["tool"],
+				required: true,
+				status: "skipped",
+				code: null,
+			},
+		];
+		expect(summarizeSecurity(results)).toEqual({
+			ok: false,
+			failedRequired: ["required-missing"],
+		});
+	});
 });
 describe("security-scan runner", () => {
 	test("marks missing tools as skipped", () => {

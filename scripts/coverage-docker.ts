@@ -5,6 +5,9 @@ import { repoRoot, spawnSync } from "./lib/runtime.ts";
 
 const DEFAULT_IMAGE = "claude-zig-quality-kcov:zig0.16-bun1.3.0";
 const DOCKERFILE = "docker/coverage.Dockerfile";
+const DOCKER_INFO_TIMEOUT_MS = 30_000;
+const DOCKER_BUILD_TIMEOUT_MS = 600_000;
+const DOCKER_RUN_TIMEOUT_MS = 600_000;
 
 export type CoverageDockerArgs = {
 	build: boolean;
@@ -15,7 +18,7 @@ export type CoverageDockerArgs = {
 
 function takeValue(argv: string[], index: number, flag: string): string {
 	const value = argv[index + 1];
-	if (!value) throw new Error(`${flag} requires a value`);
+	if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
 	return value;
 }
 
@@ -78,7 +81,7 @@ function requireDocker(): void {
 		"info",
 		"--format",
 		"{{.OperatingSystem}}",
-	]);
+	], { timeout: DOCKER_INFO_TIMEOUT_MS });
 	if (info.code !== 0) {
 		throw new Error(
 			`docker daemon is unavailable:\n${info.stderr || info.stdout}`,
@@ -94,7 +97,7 @@ function buildImage(root: string, args: CoverageDockerArgs): void {
 	const cmd = ["docker", "build", "-f", dockerfile, "-t", args.image];
 	if (args.platform) cmd.push("--platform", args.platform);
 	cmd.push(root);
-	const result = spawnSync(cmd, { cwd: root });
+	const result = spawnSync(cmd, { cwd: root, timeout: DOCKER_BUILD_TIMEOUT_MS });
 	process.stdout.write(result.stdout);
 	process.stderr.write(result.stderr);
 	if (result.code !== 0) {
@@ -112,7 +115,7 @@ function gitMetadataMount(root: string): string[] {
 	return ["-v", `${gitDir}:${gitDir}:ro`];
 }
 
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
@@ -157,7 +160,7 @@ function runCoverage(root: string, args: CoverageDockerArgs): number {
 	if (args.platform) cmd.push("--platform", args.platform);
 	cmd.push(args.image, "bash", "-lc", inner);
 
-	const result = spawnSync(cmd, { cwd: root });
+	const result = spawnSync(cmd, { cwd: root, timeout: DOCKER_RUN_TIMEOUT_MS });
 	process.stdout.write(result.stdout);
 	process.stderr.write(result.stderr);
 	return result.code ?? 1;
