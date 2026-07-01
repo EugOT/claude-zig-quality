@@ -66,6 +66,18 @@ test("validateSbom passes when all declared deps are covered", () => {
 	expect(r.ok).toBe(true);
 });
 
+test("validateSbom allows missing components for dependency-free projects", () => {
+	const r = validateSbom(
+		JSON.stringify({
+			bomFormat: "CycloneDX",
+			specVersion: "1.5",
+		}),
+		[],
+	);
+	expect(r.ok).toBe(true);
+	expect(r.componentCount).toBe(0);
+});
+
 // ---- Phase 2: signingEnvError ---------------------------------------------
 
 test("signingEnvError: missing binary is an error", () => {
