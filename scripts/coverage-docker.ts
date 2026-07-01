@@ -119,10 +119,13 @@ export function shellQuote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function runCoverage(root: string, args: CoverageDockerArgs): number {
-	const uid = process.getuid?.() ?? 1000;
-	const gid = process.getgid?.() ?? 1000;
-	const containerName = `zq-coverage-${process.pid}-${Date.now()}`;
+export function buildRunCommand(
+	root: string,
+	args: CoverageDockerArgs,
+	containerName: string,
+	uid: number,
+	gid: number,
+): string[] {
 	const inner = [
 		"set -euo pipefail",
 		'mkdir -p "$HOME" "$BUN_INSTALL_CACHE_DIR" "$XDG_CACHE_HOME"',
@@ -141,6 +144,10 @@ function runCoverage(root: string, args: CoverageDockerArgs): number {
 		"--name",
 		containerName,
 		"--init",
+		"--cpus",
+		"2",
+		"--memory",
+		"2g",
 		"--cap-add",
 		"SYS_PTRACE",
 		"--security-opt",
@@ -164,7 +171,14 @@ function runCoverage(root: string, args: CoverageDockerArgs): number {
 	];
 	if (args.platform) cmd.push("--platform", args.platform);
 	cmd.push(args.image, "bash", "-lc", inner);
+	return cmd;
+}
 
+function runCoverage(root: string, args: CoverageDockerArgs): number {
+	const uid = process.getuid?.() ?? 1000;
+	const gid = process.getgid?.() ?? 1000;
+	const containerName = `zq-coverage-${process.pid}-${Date.now()}`;
+	const cmd = buildRunCommand(root, args, containerName, uid, gid);
 	const result = spawnSync(cmd, { cwd: root, timeout: DOCKER_RUN_TIMEOUT_MS });
 	process.stdout.write(result.stdout);
 	process.stderr.write(result.stderr);

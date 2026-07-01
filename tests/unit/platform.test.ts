@@ -36,6 +36,15 @@ describe("platform lane detection", () => {
 		expect(facts.securityAuthority).toBe(true);
 	});
 
+	test("truthy environment markers are case-insensitive", () => {
+		expect(detectPlatformLane({ platform: "linux", env: { CI: "YES" } })).toBe(
+			"ci-linux",
+		);
+		expect(
+			detectPlatformLane({ platform: "linux", env: { ORBSTACK: "True" } }),
+		).toBe("orbstack-linux");
+	});
+
 	test("linux with OrbStack marker is local Linux authority", () => {
 		const facts = platformFacts({
 			platform: "linux",

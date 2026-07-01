@@ -24,6 +24,13 @@ export type CoverageSummary = {
 	coveredLines: number | null;
 	totalLines: number | null;
 	source: string;
+	files?: CoverageFileSummary[];
+};
+
+export type CoverageFileSummary = {
+	file: string;
+	coveredLines: number;
+	totalLines: number;
 };
 
 export type CoverageEvent = {
@@ -315,7 +322,9 @@ function numberFromUnknown(
 		return value;
 	}
 	if (typeof value === "string") {
-		const n = Number(value.replace("%", ""));
+		const normalized = value.replace("%", "").trim();
+		if (normalized.length === 0) return null;
+		const n = Number(normalized);
 		if (Number.isFinite(n)) {
 			if (opts.percent && (n < 0 || n > 100)) return null;
 			return n;
@@ -324,8 +333,36 @@ function numberFromUnknown(
 	return null;
 }
 
+function parseCoverageFiles(
+	doc: Record<string, unknown>,
+): CoverageFileSummary[] {
+	const rawFiles = doc.files;
+	if (!Array.isArray(rawFiles)) return [];
+	const files: CoverageFileSummary[] = [];
+	for (const rawFile of rawFiles) {
+		if (typeof rawFile !== "object" || rawFile === null) continue;
+		const entry = rawFile as Record<string, unknown>;
+		const file = entry.file;
+		if (typeof file !== "string" || file.length === 0) continue;
+		const coveredLines = numberFromUnknown(entry.covered_lines);
+		const totalLines = numberFromUnknown(entry.total_lines);
+		if (
+			coveredLines === null ||
+			totalLines === null ||
+			totalLines <= 0 ||
+			coveredLines < 0 ||
+			coveredLines > totalLines
+		) {
+			continue;
+		}
+		files.push({ file, coveredLines, totalLines });
+	}
+	return files;
+}
+
 export function parseCoverageSummary(raw: string): CoverageSummary {
 	const doc = JSON.parse(raw) as Record<string, unknown>;
+	const files = parseCoverageFiles(doc);
 	const candidates = [
 		doc.line_coverage,
 		doc.lineCoverage,
@@ -342,6 +379,7 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 				coveredLines: numberFromUnknown(doc.covered_lines),
 				totalLines: numberFromUnknown(doc.total_lines),
 				source: "json",
+				...(files.length > 0 ? { files } : {}),
 			};
 		}
 	}
@@ -357,6 +395,7 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 				coveredLines: numberFromUnknown(totals.covered_lines),
 				totalLines: numberFromUnknown(totals.total_lines),
 				source: "json.totals",
+				...(files.length > 0 ? { files } : {}),
 			};
 		}
 	}
@@ -374,6 +413,7 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 			coveredLines,
 			totalLines,
 			source: "json.counts",
+			...(files.length > 0 ? { files } : {}),
 		};
 	}
 	return {
@@ -381,6 +421,7 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 		coveredLines,
 		totalLines,
 		source: "json",
+		...(files.length > 0 ? { files } : {}),
 	};
 }
 
@@ -392,6 +433,38 @@ type ParsedCoverageSummary = CoverageSummary & {
 function mergeCoverageSummaries(
 	summaries: ParsedCoverageSummary[],
 ): CoverageSummary | null {
+	const fileCounts = new Map<string, CoverageFileSummary>();
+	for (const summary of summaries) {
+		for (const file of summary.files ?? []) {
+			const existing = fileCounts.get(file.file);
+			if (
+				existing === undefined ||
+				file.totalLines > existing.totalLines ||
+				(file.totalLines === existing.totalLines &&
+					file.coveredLines > existing.coveredLines)
+			) {
+				fileCounts.set(file.file, file);
+			}
+		}
+	}
+	if (fileCounts.size > 0) {
+		let coveredLines = 0;
+		let totalLines = 0;
+		for (const file of fileCounts.values()) {
+			coveredLines += file.coveredLines;
+			totalLines += file.totalLines;
+		}
+		return {
+			linePercent: totalLines > 0 ? (coveredLines / totalLines) * 100 : null,
+			coveredLines,
+			totalLines,
+			source: `merged-files:${fileCounts.size}`,
+			files: [...fileCounts.values()].sort((a, b) =>
+				a.file.localeCompare(b.file),
+			),
+		};
+	}
+
 	const countedNested = summaries.filter(
 		(summary) =>
 			!summary.topLevel &&
@@ -451,7 +524,12 @@ export async function readSummary(outputDir: string): Promise<CoverageSummary> {
 		const file = Bun.file(path);
 		if (!(await file.exists())) continue;
 		const raw = await readFile(path, "utf8");
-		const summary = parseCoverageSummary(raw);
+		let summary: CoverageSummary;
+		try {
+			summary = parseCoverageSummary(raw);
+		} catch {
+			continue;
+		}
 		if (summary.linePercent === null) continue;
 		const withSource = { ...summary, source: path, path, topLevel };
 		summaries.push(withSource);

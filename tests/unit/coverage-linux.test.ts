@@ -305,6 +305,15 @@ describe("coverage summary parsing", () => {
 		expect(
 			parseCoverageSummary('{"totals":{"lines": -1}}').linePercent,
 		).toBeNull();
+		expect(
+			parseCoverageSummary('{"line_coverage": ""}').linePercent,
+		).toBeNull();
+		expect(
+			parseCoverageSummary('{"line_coverage": " "}').linePercent,
+		).toBeNull();
+		expect(
+			parseCoverageSummary('{"line_coverage": "%"}').linePercent,
+		).toBeNull();
 	});
 
 	test("reads nested kcov index summaries", async () => {
@@ -336,5 +345,54 @@ describe("coverage summary parsing", () => {
 		expect(summary.totalLines).toBe(120);
 		expect(summary.linePercent).toBeCloseTo(75);
 		expect(summary.source).toBe("merged:2");
+	});
+
+	test("deduplicates per-file kcov summaries across targets", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-summary-"));
+		await mkdir(join(root, "target-a"), { recursive: true });
+		await mkdir(join(root, "target-b"), { recursive: true });
+		await writeFile(
+			join(root, "target-a/coverage.json"),
+			JSON.stringify({
+				files: [
+					{ file: "/repo/src/a.zig", covered_lines: "5", total_lines: "10" },
+					{ file: "/repo/src/b.zig", covered_lines: "7", total_lines: "7" },
+				],
+				percent_covered: "70",
+				covered_lines: 12,
+				total_lines: 17,
+			}),
+		);
+		await writeFile(
+			join(root, "target-b/coverage.json"),
+			JSON.stringify({
+				files: [
+					{ file: "/repo/src/a.zig", covered_lines: "6", total_lines: "10" },
+					{ file: "/repo/src/c.zig", covered_lines: "8", total_lines: "8" },
+				],
+				percent_covered: "77.77",
+				covered_lines: 14,
+				total_lines: 18,
+			}),
+		);
+		const summary = await readSummary(root);
+		expect(summary.coveredLines).toBe(21);
+		expect(summary.totalLines).toBe(25);
+		expect(summary.linePercent).toBeCloseTo(84);
+		expect(summary.source).toBe("merged-files:3");
+	});
+
+	test("skips malformed candidate summaries and keeps usable ones", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-summary-"));
+		await mkdir(join(root, "nested"), { recursive: true });
+		await writeFile(join(root, "coverage.json"), "{not-json");
+		await writeFile(
+			join(root, "nested/coverage.json"),
+			'{"covered_lines":9,"total_lines":10}',
+		);
+		const summary = await readSummary(root);
+		expect(summary.coveredLines).toBe(9);
+		expect(summary.totalLines).toBe(10);
+		expect(summary.linePercent).toBe(90);
 	});
 });

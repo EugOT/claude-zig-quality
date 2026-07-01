@@ -28,7 +28,8 @@ export type PlatformDetection = {
 };
 
 function truthyEnv(value: string | undefined): boolean {
-	return value === "1" || value === "true" || value === "yes";
+	const normalized = value?.trim().toLowerCase();
+	return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
 export function normalizePlatformLane(

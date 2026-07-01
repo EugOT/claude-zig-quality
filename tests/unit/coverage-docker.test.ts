@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	buildRunCommand,
 	envOrDefault,
 	parseCoverageDockerArgs,
 	shellQuote,
@@ -95,5 +96,36 @@ describe("coverage-docker argument parsing", () => {
 		expect(shellQuote("")).toBe("''");
 		expect(shellQuote("a'b")).toBe("'a'\\''b'");
 		expect(shellQuote("95; rm -rf /")).toBe("'95; rm -rf /'");
+	});
+
+	test("builds the bounded Docker run command with security flags", () => {
+		const cmd = buildRunCommand(
+			"/repo",
+			{
+				build: false,
+				failUnderLines: "95",
+				image: "local/image",
+				platform: "linux/arm64",
+			},
+			"zq-test",
+			501,
+			20,
+		);
+		expect(cmd).toContain("--name");
+		expect(cmd).toContain("zq-test");
+		expect(cmd).toContain("--cpus");
+		expect(cmd).toContain("2");
+		expect(cmd).toContain("--memory");
+		expect(cmd).toContain("2g");
+		expect(cmd).toContain("--cap-add");
+		expect(cmd).toContain("SYS_PTRACE");
+		expect(cmd).toContain("--security-opt");
+		expect(cmd).toContain("seccomp=unconfined");
+		expect(cmd).toContain("--user");
+		expect(cmd).toContain("501:20");
+		expect(cmd).toContain("--platform");
+		expect(cmd).toContain("linux/arm64");
+		expect(cmd).toContain("local/image");
+		expect(cmd.at(-1)).toContain("coverage-linux.ts --fail-under-lines '95'");
 	});
 });
