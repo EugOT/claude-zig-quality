@@ -12,6 +12,8 @@ export type OrbStackOptions = {
 
 const DEFAULT_MACHINE = "zig-qm-arch";
 const DEFAULT_IMAGE = "arch:current";
+const ORBSTACK_CREATE_TIMEOUT_MS = 300_000;
+const ORBSTACK_RUN_TIMEOUT_MS = 900_000;
 
 export function defaultLinuxCommand(repo: string): string {
 	return [
@@ -27,7 +29,8 @@ export function defaultLinuxCommand(repo: string): string {
 
 function takeValue(argv: string[], index: number, flag: string): string {
 	const value = argv[index + 1];
-	if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+	if (!value || value.startsWith("--"))
+		throw new Error(`${flag} requires a value`);
 	return value;
 }
 
@@ -110,9 +113,17 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 		const createCmd = orbCreateArgs(opts);
 		if (opts.dryRun) printCommand(createCmd);
 		else {
-			const created = spawnSync(createCmd);
+			const created = spawnSync(createCmd, {
+				timeout: ORBSTACK_CREATE_TIMEOUT_MS,
+			});
 			process.stdout.write(created.stdout);
 			process.stderr.write(created.stderr);
+			if (created.timedOut) {
+				console.error(
+					`orbstack-linux: orb create timed out after ${ORBSTACK_CREATE_TIMEOUT_MS}ms`,
+				);
+				process.exit(124);
+			}
 			if (created.code !== 0) process.exit(created.code ?? 1);
 		}
 	}
@@ -122,9 +133,15 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 		printCommand(runCmd);
 		return;
 	}
-	const run = spawnSync(runCmd);
+	const run = spawnSync(runCmd, { timeout: ORBSTACK_RUN_TIMEOUT_MS });
 	process.stdout.write(run.stdout);
 	process.stderr.write(run.stderr);
+	if (run.timedOut) {
+		console.error(
+			`orbstack-linux: orb run timed out after ${ORBSTACK_RUN_TIMEOUT_MS}ms`,
+		);
+		process.exit(124);
+	}
 	process.exit(run.code ?? 1);
 }
 

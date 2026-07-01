@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+	assertSafeCoverageOutput,
 	buildKcovArgs,
+	coverageStem,
 	parseCoverageArgs,
 	parseCoverageSummary,
 	resolveRepoChild,
+	resolveSummaryOutput,
 	zigTestCompileArgs,
 } from "../../scripts/coverage-linux.ts";
+import { spawnSync } from "../../scripts/lib/runtime.ts";
 
 describe("coverage-linux argument parsing", () => {
 	test("uses safe defaults", () => {
@@ -129,6 +136,52 @@ describe("coverage-linux argument parsing", () => {
 		expect(resolveRepoChild("/repo", "zig-out/coverage", "--output")).toBe(
 			"/repo/zig-out/coverage",
 		);
+	});
+
+	test("rejects option-looking flag values", () => {
+		expect(() =>
+			parseCoverageArgs(["--summary-output", "--allow-non-linux"]),
+		).toThrow("--summary-output requires a value");
+	});
+
+	test("summary output cannot escape generated summary locations", () => {
+		expect(() => resolveSummaryOutput("/repo", "../summary.json")).toThrow(
+			"must stay inside the repository",
+		);
+		expect(() => resolveSummaryOutput("/repo", "README.md")).toThrow(
+			"must stay under coverage/",
+		);
+		expect(resolveSummaryOutput("/repo", "coverage/summary.json")).toBe(
+			"/repo/coverage/summary.json",
+		);
+	});
+
+	test("coverage output cleanup is limited to generated coverage directories", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-root-"));
+		expect(() => assertSafeCoverageOutput(root, join(root, "src"))).toThrow(
+			"must be under zig-out/coverage/",
+		);
+		expect(() =>
+			assertSafeCoverageOutput(root, join(root, "zig-out/coverage/kcov")),
+		).not.toThrow();
+	});
+
+	test("coverage output refuses tracked files even under generated directories", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-git-"));
+		spawnSync(["git", "init"], { cwd: root });
+		await mkdir(join(root, "zig-out/coverage/kcov"), { recursive: true });
+		await writeFile(join(root, "zig-out/coverage/kcov/tracked.txt"), "x");
+		spawnSync(["git", "add", "zig-out/coverage/kcov/tracked.txt"], {
+			cwd: root,
+		});
+		expect(() =>
+			assertSafeCoverageOutput(root, join(root, "zig-out/coverage/kcov")),
+		).toThrow("contains tracked files");
+	});
+
+	test("coverage stems include directory context", () => {
+		expect(coverageStem("src/a/mod.zig")).toBe("src_a_mod");
+		expect(coverageStem("src/b/mod.zig")).toBe("src_b_mod");
 	});
 });
 

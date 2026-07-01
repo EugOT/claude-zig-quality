@@ -18,7 +18,8 @@ export type CoverageDockerArgs = {
 
 function takeValue(argv: string[], index: number, flag: string): string {
 	const value = argv[index + 1];
-	if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+	if (!value || value.startsWith("--"))
+		throw new Error(`${flag} requires a value`);
 	return value;
 }
 
@@ -76,12 +77,10 @@ function requireDocker(): void {
 			"docker was not found on PATH; start OrbStack or use a Docker-capable CI runner.",
 		);
 	}
-	const info = spawnSync([
-		"docker",
-		"info",
-		"--format",
-		"{{.OperatingSystem}}",
-	], { timeout: DOCKER_INFO_TIMEOUT_MS });
+	const info = spawnSync(
+		["docker", "info", "--format", "{{.OperatingSystem}}"],
+		{ timeout: DOCKER_INFO_TIMEOUT_MS },
+	);
 	if (info.code !== 0) {
 		throw new Error(
 			`docker daemon is unavailable:\n${info.stderr || info.stdout}`,
@@ -97,16 +96,27 @@ function buildImage(root: string, args: CoverageDockerArgs): void {
 	const cmd = ["docker", "build", "-f", dockerfile, "-t", args.image];
 	if (args.platform) cmd.push("--platform", args.platform);
 	cmd.push(root);
-	const result = spawnSync(cmd, { cwd: root, timeout: DOCKER_BUILD_TIMEOUT_MS });
+	const result = spawnSync(cmd, {
+		cwd: root,
+		timeout: DOCKER_BUILD_TIMEOUT_MS,
+	});
 	process.stdout.write(result.stdout);
 	process.stderr.write(result.stderr);
+	if (result.timedOut) {
+		throw new Error(
+			`docker build timed out after ${DOCKER_BUILD_TIMEOUT_MS}ms`,
+		);
+	}
 	if (result.code !== 0) {
 		throw new Error(`docker build failed with exit ${result.code}`);
 	}
 }
 
-function gitMetadataMount(root: string): string[] {
-	const result = spawnSync(["git", "rev-parse", "--git-dir"], { cwd: root });
+export function gitMetadataMount(root: string): string[] {
+	const result = spawnSync(["git", "rev-parse", "--git-dir"], {
+		cwd: root,
+		timeout: DOCKER_INFO_TIMEOUT_MS,
+	});
 	if (result.code !== 0) return [];
 	const raw = result.stdout.trim();
 	if (raw.length === 0) return [];
@@ -163,6 +173,10 @@ function runCoverage(root: string, args: CoverageDockerArgs): number {
 	const result = spawnSync(cmd, { cwd: root, timeout: DOCKER_RUN_TIMEOUT_MS });
 	process.stdout.write(result.stdout);
 	process.stderr.write(result.stderr);
+	if (result.timedOut) {
+		console.error(`docker run timed out after ${DOCKER_RUN_TIMEOUT_MS}ms`);
+		return 124;
+	}
 	return result.code ?? 1;
 }
 

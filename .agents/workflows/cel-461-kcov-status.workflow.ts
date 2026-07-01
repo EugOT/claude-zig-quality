@@ -18,7 +18,11 @@ type ThreadId =
 	| "live-report";
 
 type Lane = "macos-native" | "orbstack-linux" | "ci-linux";
-type RiskLevel = "safe-read" | "local-write" | "system-mutation" | "remote-mutation";
+type RiskLevel =
+	| "safe-read"
+	| "local-write"
+	| "system-mutation"
+	| "remote-mutation";
 type SourceKind =
 	| "implementation-source"
 	| "reference-documentation"
@@ -26,7 +30,11 @@ type SourceKind =
 	| "workflow-config"
 	| "test-fixture"
 	| "security-standard";
-type SourceQuality = "primary" | "repo-local" | "connector-live" | "memory-derived";
+type SourceQuality =
+	| "primary"
+	| "repo-local"
+	| "connector-live"
+	| "memory-derived";
 type ThreadStatus = "ready" | "blocked" | "complete" | "pending-validation";
 
 type ResearchSource = {
@@ -58,7 +66,10 @@ type ValidationStep = {
 
 type AgentRole = {
 	readonly name: string;
-	readonly modelIntent: "haiku-readonly" | "sonnet-implementation" | "opus-review";
+	readonly modelIntent:
+		| "haiku-readonly"
+		| "sonnet-implementation"
+		| "opus-review";
 	readonly scope: string;
 	readonly tools: readonly string[];
 };
@@ -107,7 +118,7 @@ type WorkflowProgram = {
 const workflow = {
 	slug: "cel-461-kcov-status",
 	reportUrl: "https://report.cordillera.home/r/cel-461-kcov-status",
-	repository: "/Users/etretiakov/ghq/github.com/EugOT/claude-zig-quality",
+	repository: "github.com/EugOT/claude-zig-quality",
 	observationStamp: {
 		observedAt: "2026-07-01T13:58:00+02:00",
 		branch: "test/cel-461-reusable-kcov-templates",
@@ -155,7 +166,11 @@ const workflow = {
 			recency: "Live repo inspection on 2026-06-28",
 			notes:
 				"src/lib.zig is real public API logic and must stay inside coverage targets; do not copy gitstore-cli exclusions blindly.",
-			locations: ["src/lib.zig", "scripts/coverage-linux.ts", "tests/unit/coverage-linux.test.ts"],
+			locations: [
+				"src/lib.zig",
+				"scripts/coverage-linux.ts",
+				"tests/unit/coverage-linux.test.ts",
+			],
 		},
 		{
 			id: "linear-tracker",
@@ -208,28 +223,43 @@ const workflow = {
 			risk: "local-write",
 			appliesTo: ["scripts/verify-release.ts"],
 			confirmationRequired: true,
-			rule:
-				"Do not edit or revert scripts/verify-release.ts until the concurrent diff owner or user explicitly approves.",
+			rule: "Do not edit or revert scripts/verify-release.ts until the concurrent diff owner or user explicitly approves.",
 		},
 		{
 			id: "no-destructive-vcs",
 			risk: "local-write",
-			appliesTo: ["git reset", "git checkout --", "jj undo", "jj abandon", "jj op restore"],
+			appliesTo: [
+				"git reset",
+				"git checkout --",
+				"jj undo",
+				"jj abandon",
+				"jj op restore",
+			],
 			confirmationRequired: true,
 			rule: "Destructive VCS cleanup is unsafe by default.",
 		},
 		{
 			id: "system-provisioning",
 			risk: "system-mutation",
-			appliesTo: ["orb create", "docker build", "docker run", "pacman", "mise use -g"],
+			appliesTo: [
+				"orb create",
+				"docker build",
+				"docker run",
+				"pacman",
+				"mise use -g",
+			],
 			confirmationRequired: true,
-			rule:
-				"Provisioning and container execution require an explicit go-ahead and must report resource impact.",
+			rule: "Provisioning and container execution require an explicit go-ahead and must report resource impact.",
 		},
 		{
 			id: "remote-publication",
 			risk: "remote-mutation",
-			appliesTo: ["gh pr create", "git push", "Linear comments/documents", "report-host publish"],
+			appliesTo: [
+				"gh pr create",
+				"git push",
+				"Linear comments/documents",
+				"report-host publish",
+			],
 			confirmationRequired: true,
 			rule: "Remote writes wait for user approval unless explicitly requested in the current turn.",
 		},
@@ -242,8 +272,16 @@ const workflow = {
 			scope:
 				"Create and maintain this typed workflow artifact; preserve live status, ownership, thread boundaries, and blockers.",
 			dependencies: [],
-			inputs: ["git status", "git log", "Linear project issue list", "repo file inventory"],
-			outputs: [".agents/workflows/cel-461-kcov-status.workflow.ts", "status report"],
+			inputs: [
+				"git status",
+				"git log",
+				"Linear project issue list",
+				"repo file inventory",
+			],
+			outputs: [
+				".agents/workflows/cel-461-kcov-status.workflow.ts",
+				"status report",
+			],
 			blockers: [],
 			readGlobs: ["**/*"],
 			writeGlobs: [".agents/workflows/cel-461-kcov-status.workflow.ts"],
@@ -265,7 +303,10 @@ const workflow = {
 				},
 			],
 			mcpAndApps: ["Linear read-only"],
-			docs: ["CLAUDE.md", "doc/adr/0007-platform-coverage-security-workflow.md"],
+			docs: [
+				"CLAUDE.md",
+				"doc/adr/0007-platform-coverage-security-workflow.md",
+			],
 			roles: [
 				{
 					name: "workflow-owner",
@@ -286,15 +327,37 @@ const workflow = {
 			scope:
 				"Review coverage scripts and source targets for correctness, especially src/lib.zig inclusion and kcov summary parsing.",
 			dependencies: ["coordination-status"],
-			inputs: ["scripts/coverage-linux.ts", "scripts/coverage-docker.ts", "src/*.zig", "tests/unit/coverage*.test.ts"],
-			outputs: ["coverage target audit", "coverage parser findings", "optional narrow fixes"],
-			blockers: ["Need Linux or Docker/OrbStack run for measured kcov evidence."],
-			readGlobs: ["scripts/coverage-*.ts", "src/*.zig", "tests/unit/coverage*.test.ts", "coverage/summary.json"],
-			writeGlobs: ["scripts/coverage-linux.ts", "scripts/coverage-docker.ts", "tests/unit/coverage*.test.ts"],
+			inputs: [
+				"scripts/coverage-linux.ts",
+				"scripts/coverage-docker.ts",
+				"src/*.zig",
+				"tests/unit/coverage*.test.ts",
+			],
+			outputs: [
+				"coverage target audit",
+				"coverage parser findings",
+				"optional narrow fixes",
+			],
+			blockers: [
+				"Need Linux or Docker/OrbStack run for measured kcov evidence.",
+			],
+			readGlobs: [
+				"scripts/coverage-*.ts",
+				"src/*.zig",
+				"tests/unit/coverage*.test.ts",
+				"coverage/summary.json",
+			],
+			writeGlobs: [
+				"scripts/coverage-linux.ts",
+				"scripts/coverage-docker.ts",
+				"tests/unit/coverage-linux.test.ts",
+				"tests/unit/coverage-docker.test.ts",
+			],
 			forbiddenGlobs: ["scripts/verify-release.ts"],
 			commands: [
 				{
-					command: "bun test tests/unit/coverage-linux.test.ts tests/unit/coverage-docker.test.ts",
+					command:
+						"bun test tests/unit/coverage-linux.test.ts tests/unit/coverage-docker.test.ts",
 					lane: "macos-native",
 					mutatesSystem: false,
 					requiredForAcceptance: true,
@@ -305,11 +368,15 @@ const workflow = {
 					lane: "orbstack-linux",
 					mutatesSystem: false,
 					requiredForAcceptance: true,
-					expected: "Measured Linux kcov coverage passes, including src/lib.zig.",
+					expected:
+						"Measured Linux kcov coverage passes, including src/lib.zig.",
 				},
 			],
 			mcpAndApps: [],
-			docs: ["kcov upstream docs/source", ".claude/skills/zig-quality/references/platform-coverage-security.md"],
+			docs: [
+				"kcov upstream docs/source",
+				".claude/skills/zig-quality/references/platform-coverage-security.md",
+			],
 			roles: [
 				{
 					name: "coverage-auditor",
@@ -336,15 +403,38 @@ const workflow = {
 			scope:
 				"Review OrbStack lane command construction, provisioning templates, and lane authority claims.",
 			dependencies: ["coordination-status"],
-			inputs: ["scripts/orbstack-linux.ts", "scripts/lib/platform.ts", "templates/orbstack/*"],
-			outputs: ["OrbStack dry-run evidence", "provisioning blocker list", "optional narrow fixes"],
-			blockers: ["Actual orb execution requires local OrbStack availability and user approval."],
-			readGlobs: ["scripts/orbstack-linux.ts", "scripts/lib/platform.ts", "templates/orbstack/*", "tests/unit/orbstack-linux.test.ts", "tests/unit/platform.test.ts"],
-			writeGlobs: ["scripts/orbstack-linux.ts", "scripts/lib/platform.ts", "templates/orbstack/*", "tests/unit/orbstack-linux.test.ts", "tests/unit/platform.test.ts"],
+			inputs: [
+				"scripts/orbstack-linux.ts",
+				"scripts/lib/platform.ts",
+				"templates/orbstack/*",
+			],
+			outputs: [
+				"OrbStack dry-run evidence",
+				"provisioning blocker list",
+				"optional narrow fixes",
+			],
+			blockers: [
+				"Actual orb execution requires local OrbStack availability and user approval.",
+			],
+			readGlobs: [
+				"scripts/orbstack-linux.ts",
+				"scripts/lib/platform.ts",
+				"templates/orbstack/*",
+				"tests/unit/orbstack-linux.test.ts",
+				"tests/unit/platform.test.ts",
+			],
+			writeGlobs: [
+				"scripts/orbstack-linux.ts",
+				"scripts/lib/platform.ts",
+				"templates/orbstack/*",
+				"tests/unit/orbstack-linux.test.ts",
+				"tests/unit/platform.test.ts",
+			],
 			forbiddenGlobs: ["scripts/verify-release.ts"],
 			commands: [
 				{
-					command: "bun test tests/unit/orbstack-linux.test.ts tests/unit/platform.test.ts",
+					command:
+						"bun test tests/unit/orbstack-linux.test.ts tests/unit/platform.test.ts",
 					lane: "macos-native",
 					mutatesSystem: false,
 					requiredForAcceptance: true,
@@ -359,7 +449,11 @@ const workflow = {
 				},
 			],
 			mcpAndApps: [],
-			docs: ["OrbStack Linux machines docs", "OrbStack CLI/headless docs", "doc/adr/0007-platform-coverage-security-workflow.md"],
+			docs: [
+				"OrbStack Linux machines docs",
+				"OrbStack CLI/headless docs",
+				"doc/adr/0007-platform-coverage-security-workflow.md",
+			],
 			roles: [
 				{
 					name: "platform-auditor",
@@ -380,18 +474,42 @@ const workflow = {
 			scope:
 				"Review coverage-security workflow, supply-chain gates, Dockerfile pinning, and optional scanner behavior.",
 			dependencies: ["coordination-status"],
-			inputs: [".forgejo/workflows/coverage-security.yaml", "templates/forgejo/coverage-security.yaml", "docker/coverage.Dockerfile", "scripts/security-scan.ts"],
-			outputs: ["security gate findings", "workflow hardening checklist", "optional narrow fixes"],
+			inputs: [
+				".forgejo/workflows/coverage-security.yaml",
+				"templates/forgejo/coverage-security.yaml",
+				"docker/coverage.Dockerfile",
+				"scripts/security-scan.ts",
+			],
+			outputs: [
+				"security gate findings",
+				"workflow hardening checklist",
+				"optional narrow fixes",
+			],
 			blockers: [
 				"Need decision on action SHA pinning versus current tag form.",
 				"Need CI runner result for coverage-security workflow.",
 			],
-			readGlobs: [".forgejo/workflows/*.yaml", "templates/forgejo/*.yaml", "docker/coverage.Dockerfile", "scripts/security-scan.ts", "tests/unit/security-scan.test.ts", "tests/unit/coverage-security-yaml.test.ts"],
-			writeGlobs: [".forgejo/workflows/coverage-security.yaml", "templates/forgejo/coverage-security.yaml", "docker/coverage.Dockerfile", "scripts/security-scan.ts", "tests/unit/security-scan.test.ts", "tests/unit/coverage-security-yaml.test.ts"],
+			readGlobs: [
+				".forgejo/workflows/*.yaml",
+				"templates/forgejo/*.yaml",
+				"docker/coverage.Dockerfile",
+				"scripts/security-scan.ts",
+				"tests/unit/security-scan.test.ts",
+				"tests/unit/coverage-security-yaml.test.ts",
+			],
+			writeGlobs: [
+				".forgejo/workflows/coverage-security.yaml",
+				"templates/forgejo/coverage-security.yaml",
+				"docker/coverage.Dockerfile",
+				"scripts/security-scan.ts",
+				"tests/unit/security-scan.test.ts",
+				"tests/unit/coverage-security-yaml.test.ts",
+			],
 			forbiddenGlobs: ["scripts/verify-release.ts"],
 			commands: [
 				{
-					command: "bun test tests/unit/security-scan.test.ts tests/unit/coverage-security-yaml.test.ts",
+					command:
+						"bun test tests/unit/security-scan.test.ts tests/unit/coverage-security-yaml.test.ts",
 					lane: "macos-native",
 					mutatesSystem: false,
 					requiredForAcceptance: true,
@@ -402,16 +520,23 @@ const workflow = {
 					lane: "macos-native",
 					mutatesSystem: false,
 					requiredForAcceptance: true,
-					expected: "Required security checks pass; optional missing scanners are explicit.",
+					expected:
+						"Required security checks pass; optional missing scanners are explicit.",
 				},
 			],
 			mcpAndApps: ["Linear read-only"],
-			docs: ["GitHub Actions security hardening docs", "SLSA v1.2", "NIST SSDF SP 800-218", "OpenSSF Scorecard docs"],
+			docs: [
+				"GitHub Actions security hardening docs",
+				"SLSA v1.2",
+				"NIST SSDF SP 800-218",
+				"OpenSSF Scorecard docs",
+			],
 			roles: [
 				{
 					name: "supply-chain-auditor",
 					modelIntent: "opus-review",
-					scope: "Challenge workflow trust boundary and supply-chain assumptions.",
+					scope:
+						"Challenge workflow trust boundary and supply-chain assumptions.",
 					tools: ["Read", "rg", "web primary docs", "bun test"],
 				},
 			],
@@ -426,9 +551,21 @@ const workflow = {
 			status: "complete",
 			scope:
 				"Run final validation matrix, collect command results, and propose PR split after implementation slices settle.",
-			dependencies: ["repo-coverage-review", "platform-orbstack-review", "ci-security-review"],
-			inputs: ["all changed files", "Linear CEL-465 checklist", "local and CI command output"],
-			outputs: ["validation transcript", "PR split recommendation", "residual risk list"],
+			dependencies: [
+				"repo-coverage-review",
+				"platform-orbstack-review",
+				"ci-security-review",
+			],
+			inputs: [
+				"all changed files",
+				"Linear CEL-465 checklist",
+				"local and CI command output",
+			],
+			outputs: [
+				"validation transcript",
+				"PR split recommendation",
+				"residual risk list",
+			],
 			blockers: [
 				"CI workflow run result is remote state and must be fetched live after PR publication before claiming merge-authoritative green.",
 			],
@@ -444,22 +581,28 @@ const workflow = {
 					expected: "All Bun tests pass.",
 				},
 				{
-					command: "bun scripts/verify-fast.ts && bun scripts/verify-commit.ts && bun scripts/verify-pr.ts",
+					command:
+						"bun scripts/verify-fast.ts && bun scripts/verify-commit.ts && bun scripts/verify-pr.ts",
 					lane: "macos-native",
 					mutatesSystem: false,
 					requiredForAcceptance: true,
-					expected: "Tier gates pass or report known Darwin fuzz degradation honestly.",
+					expected:
+						"Tier gates pass or report known Darwin fuzz degradation honestly.",
 				},
 				{
 					command: "bun scripts/coverage-docker.ts --fail-under-lines 95",
 					lane: "ci-linux",
 					mutatesSystem: true,
 					requiredForAcceptance: true,
-					expected: "Docker/Fedora kcov lane reports measured coverage at or above threshold.",
+					expected:
+						"Docker/Fedora kcov lane reports measured coverage at or above threshold.",
 				},
 			],
 			mcpAndApps: ["Linear read-only", "GitHub/Forgejo read-only"],
-			docs: ["CEL-465 Linear issue", "doc/adr/0007-platform-coverage-security-workflow.md"],
+			docs: [
+				"CEL-465 Linear issue",
+				"doc/adr/0007-platform-coverage-security-workflow.md",
+			],
 			roles: [
 				{
 					name: "validation-runner",
@@ -486,19 +629,32 @@ const workflow = {
 			scope:
 				"Publish the final interactive live report to the Phoenix LiveView report host slug.",
 			dependencies: ["qa-validation"],
-			inputs: ["workflow file", "validation transcript", "findings", "blockers"],
+			inputs: [
+				"workflow file",
+				"validation transcript",
+				"findings",
+				"blockers",
+			],
 			outputs: ["https://report.cordillera.home/r/cel-461-kcov-status"],
-			blockers: ["Report-host publication is a remote/durable write and needs explicit approval in this thread."],
-			readGlobs: ["report-platform/**", "doc/adr/0006-report-platform.md", ".agents/workflows/cel-461-kcov-status.workflow.ts"],
+			blockers: [
+				"Report-host publication is a remote/durable write and needs explicit approval in this thread.",
+			],
+			readGlobs: [
+				"report-platform/**",
+				"doc/adr/0006-report-platform.md",
+				".agents/workflows/cel-461-kcov-status.workflow.ts",
+			],
 			writeGlobs: ["report-platform/**"],
 			forbiddenGlobs: ["scripts/verify-release.ts"],
 			commands: [
 				{
-					command: "REPORT_HOST_REPORT_PATH=<approved-path> bun report-platform/publish.ts",
+					command:
+						"REPORT_HOST_REPORT_PATH=<approved-path> bun report-platform/publish.ts",
 					lane: "report-host",
 					mutatesSystem: true,
 					requiredForAcceptance: true,
-					expected: "Publishes report only after approval and reports final URL.",
+					expected:
+						"Publishes report only after approval and reports final URL.",
 				},
 			],
 			mcpAndApps: [],
@@ -507,7 +663,8 @@ const workflow = {
 				{
 					name: "report-publisher",
 					modelIntent: "sonnet-implementation",
-					scope: "Prepare report content and publish only after explicit approval.",
+					scope:
+						"Prepare report content and publish only after explicit approval.",
 					tools: ["Read", "bun report-platform/publish.ts"],
 				},
 			],
@@ -570,10 +727,10 @@ function assertWorkflow(program: WorkflowProgram): void {
 		for (const glob of thread.writeGlobs) {
 			for (const owner of ownedGlobs) {
 				if (owner.thread !== thread.id && globsMayOverlap(owner.glob, glob)) {
-				throw new Error(
+					throw new Error(
 						`write ownership conflict: ${owner.thread} owns ${owner.glob}, ${thread.id} owns ${glob}`,
-				);
-			}
+					);
+				}
 			}
 			ownedGlobs.push({ thread: thread.id, glob });
 		}
@@ -600,6 +757,11 @@ function globPrefix(glob: string): string {
 
 function globsMayOverlap(left: string, right: string): boolean {
 	if (left === right || left === "**/*" || right === "**/*") return true;
+	if (globMatches(left, right) || globMatches(right, left)) return true;
+	const leftSample = globSample(left);
+	const rightSample = globSample(right);
+	if (globMatches(left, rightSample) || globMatches(right, leftSample))
+		return true;
 	const leftPrefix = globPrefix(left);
 	const rightPrefix = globPrefix(right);
 	if (leftPrefix.length === 0 || rightPrefix.length === 0) return true;
@@ -608,6 +770,41 @@ function globsMayOverlap(left: string, right: string): boolean {
 		rightPrefix.startsWith(`${leftPrefix}/`) ||
 		leftPrefix === rightPrefix
 	);
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+}
+
+function globToRegExp(glob: string): RegExp {
+	let source = "^";
+	for (let i = 0; i < glob.length; i++) {
+		const char = glob[i];
+		if (char === "*") {
+			if (glob[i + 1] === "*") {
+				source += ".*";
+				i++;
+			} else {
+				source += "[^/]*";
+			}
+		} else if (char === "?") {
+			source += "[^/]";
+		} else {
+			source += escapeRegExp(char);
+		}
+	}
+	return new RegExp(`${source}$`);
+}
+
+function globMatches(pattern: string, path: string): boolean {
+	return globToRegExp(pattern).test(path);
+}
+
+function globSample(glob: string): string {
+	return glob
+		.replace(/\*\*/g, "dir")
+		.replace(/\*/g, "sample")
+		.replace(/\?/g, "x");
 }
 
 function assertAcyclicThreads(program: WorkflowProgram): void {

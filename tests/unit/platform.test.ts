@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	detectPlatform,
 	detectPlatformLane,
 	normalizePlatformLane,
 	platformFacts,
@@ -81,6 +82,12 @@ describe("platform lane detection", () => {
 	});
 
 	test("explicit ci-linux override keeps ci facts coherent", () => {
+		expect(
+			detectPlatform({
+				platform: "darwin",
+				env: { ZIG_QM_PLATFORM_LANE: "ci-linux" },
+			}),
+		).toEqual({ lane: "ci-linux", ci: true, orbstack: false });
 		const facts = platformFacts({
 			platform: "darwin",
 			env: { ZIG_QM_PLATFORM_LANE: "ci-linux" },

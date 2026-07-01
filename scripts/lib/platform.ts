@@ -21,6 +21,12 @@ export type PlatformDetectOptions = {
 	env?: Record<string, string | undefined>;
 };
 
+export type PlatformDetection = {
+	lane: PlatformLane;
+	ci: boolean;
+	orbstack: boolean;
+};
+
 function truthyEnv(value: string | undefined): boolean {
 	return value === "1" || value === "true" || value === "yes";
 }
@@ -43,13 +49,11 @@ export function normalizePlatformLane(
 	}
 }
 
-export function detectPlatformLane(
+export function detectPlatform(
 	opts: PlatformDetectOptions = {},
-): PlatformLane {
+): PlatformDetection {
 	const env = opts.env ?? process.env;
 	const override = normalizePlatformLane(env.ZIG_QM_PLATFORM_LANE);
-	if (override) return override;
-
 	const platform = opts.platform ?? process.platform;
 	const ci = truthyEnv(env.CI);
 	const orbstack =
@@ -58,19 +62,37 @@ export function detectPlatformLane(
 		!!env.ORB_STACK_MACHINE ||
 		!!env.ZIG_QM_ORBSTACK_MACHINE;
 
-	if (platform === "darwin") return "macos-native";
-	if (platform === "linux" && ci) return "ci-linux";
-	if (platform === "linux" && orbstack) return "orbstack-linux";
-	if (platform === "linux") return "linux-local";
-	return "other";
+	if (override) {
+		return {
+			lane: override,
+			ci: ci || override === "ci-linux",
+			orbstack: override === "orbstack-linux",
+		};
+	}
+
+	if (platform === "darwin")
+		return { lane: "macos-native", ci, orbstack: false };
+	if (platform === "linux" && ci) {
+		return { lane: "ci-linux", ci: true, orbstack: false };
+	}
+	if (platform === "linux" && orbstack) {
+		return { lane: "orbstack-linux", ci, orbstack: true };
+	}
+	if (platform === "linux") return { lane: "linux-local", ci, orbstack: false };
+	return { lane: "other", ci, orbstack: false };
+}
+
+export function detectPlatformLane(
+	opts: PlatformDetectOptions = {},
+): PlatformLane {
+	return detectPlatform(opts).lane;
 }
 
 export function platformFacts(opts: PlatformDetectOptions = {}): PlatformFacts {
 	const env = opts.env ?? process.env;
 	const platform = opts.platform ?? process.platform;
-	const lane = detectPlatformLane({ env, platform });
-	const ci = truthyEnv(env.CI) || lane === "ci-linux";
-	const orbstack = lane === "orbstack-linux";
+	const detection = detectPlatform({ env, platform });
+	const { lane, ci, orbstack } = detection;
 	const linuxAuthority = lane === "orbstack-linux" || lane === "ci-linux";
 	const notes: string[] = [];
 

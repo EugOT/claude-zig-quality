@@ -132,6 +132,7 @@ export type SpawnResult = {
 	code: number | null;
 	stdout: string;
 	stderr: string;
+	timedOut: boolean;
 };
 
 export function spawnSync(cmd: string[], opts: SpawnOpts = {}): SpawnResult {
@@ -153,9 +154,10 @@ export function spawnSync(cmd: string[], opts: SpawnOpts = {}): SpawnResult {
 			code: proc.exitCode,
 			stdout: proc.stdout.toString(),
 			stderr: proc.stderr.toString(),
+			timedOut: proc.exitedDueToTimeout,
 		};
 	} catch (err) {
-		return { code: 127, stdout: "", stderr: String(err) };
+		return { code: 127, stdout: "", stderr: String(err), timedOut: false };
 	}
 }
 

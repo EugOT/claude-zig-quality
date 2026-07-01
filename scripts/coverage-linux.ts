@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { platformFacts } from "./lib/platform.ts";
 import { repoRoot, spawnSync } from "./lib/runtime.ts";
 
@@ -37,17 +37,78 @@ export type CoverageEvent = {
 
 function takeValue(argv: string[], index: number, flag: string): string {
 	const value = argv[index + 1];
-	if (!value) throw new Error(`${flag} requires a value`);
+	if (!value || value.startsWith("--"))
+		throw new Error(`${flag} requires a value`);
 	return value;
 }
 
-export function resolveRepoChild(root: string, value: string, flag: string): string {
+export function resolveRepoChild(
+	root: string,
+	value: string,
+	flag: string,
+): string {
 	const resolved = resolve(root, value);
 	const rel = relative(root, resolved);
 	if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
-		throw new Error(`${flag} must stay inside the repository and cannot be the repo root`);
+		throw new Error(
+			`${flag} must stay inside the repository and cannot be the repo root`,
+		);
 	}
 	return resolved;
+}
+
+function repoRel(root: string, path: string): string {
+	return relative(root, path).replaceAll("\\", "/");
+}
+
+function isGeneratedCoveragePath(root: string, path: string): boolean {
+	const rel = repoRel(root, path);
+	return (
+		rel === "zig-out/coverage" ||
+		rel.startsWith("zig-out/coverage/") ||
+		rel === "coverage/kcov" ||
+		rel.startsWith("coverage/kcov/")
+	);
+}
+
+export function resolveSummaryOutput(root: string, value: string): string {
+	const summaryPath = resolveRepoChild(root, value, "--summary-output");
+	const rel = repoRel(root, summaryPath);
+	if (
+		rel !== "coverage/summary.json" &&
+		!rel.startsWith("coverage/") &&
+		!rel.startsWith("zig-out/coverage/")
+	) {
+		throw new Error(
+			"--summary-output must stay under coverage/ or zig-out/coverage/",
+		);
+	}
+	return summaryPath;
+}
+
+export function assertSafeCoverageOutput(
+	root: string,
+	outputDir: string,
+): void {
+	const rel = repoRel(root, outputDir);
+	if (!isGeneratedCoveragePath(root, outputDir)) {
+		throw new Error(
+			"--output must be under zig-out/coverage/ or coverage/kcov/",
+		);
+	}
+	const tracked = spawnSync(["git", "ls-files", "--", rel], {
+		cwd: root,
+		timeout: 5_000,
+	});
+	if (tracked.code === 0 && tracked.stdout.trim().length > 0) {
+		throw new Error(`--output contains tracked files: ${rel}`);
+	}
+}
+
+export function coverageStem(target: string): string {
+	const withoutExt = target.replace(/\.zig$/, "");
+	const stem = withoutExt.replace(/[^A-Za-z0-9_-]/g, "_").replace(/^_+/, "");
+	return stem.length > 0 ? stem : "target";
 }
 
 export function parseCoverageArgs(argv: string[]): CoverageOptions {
@@ -258,7 +319,7 @@ async function emitSummary(
 	opts: CoverageOptions,
 	event: CoverageEvent,
 ) {
-	const summaryPath = resolve(root, opts.summaryOutput);
+	const summaryPath = resolveSummaryOutput(root, opts.summaryOutput);
 	await mkdir(dirname(summaryPath), { recursive: true });
 	await writeFile(summaryPath, `${JSON.stringify(event, null, 2)}\n`);
 	console.log(JSON.stringify(event));
@@ -277,7 +338,7 @@ async function runZigTestCoverage(
 			console.error(`coverage-linux: target does not exist: ${target}`);
 			return 1;
 		}
-		const stem = basename(target, ".zig").replace(/[^A-Za-z0-9_-]/g, "_");
+		const stem = coverageStem(target);
 		const bin = resolve(binDir, `${stem}-test`);
 		const compile = spawnSync(zigTestCompileArgs(source, bin), { cwd: root });
 		process.stdout.write(compile.stdout);
@@ -327,6 +388,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 	}
 
 	const out = resolveRepoChild(root, opts.outputDir, "--output");
+	assertSafeCoverageOutput(root, out);
 	await rm(out, { recursive: true, force: true });
 	await mkdir(out, { recursive: true });
 	if (opts.mode === "zig-tests") {
@@ -362,7 +424,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 	}
 
 	const summary = await readSummary(out);
-	let status: CoverageEvent["status"] = summary.linePercent === null ? "failed" : "ok";
+	let status: CoverageEvent["status"] =
+		summary.linePercent === null ? "failed" : "ok";
 	let reason =
 		summary.linePercent === null ? "coverage-summary-missing" : undefined;
 	if (
