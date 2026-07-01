@@ -92,6 +92,16 @@ describe("coverage-linux argument parsing", () => {
 		expect(opts.targets).toEqual(["src/a.zig", "scripts/b.zig"]);
 	});
 
+	test("single --target clears defaults and repeated --target accumulates", () => {
+		const opts = parseCoverageArgs([
+			"--target",
+			"src/a.zig",
+			"--target",
+			"src/b.zig",
+		]);
+		expect(opts.targets).toEqual(["src/a.zig", "src/b.zig"]);
+	});
+
 	test("builds zig test compile argv", () => {
 		const previous = process.env.ZIG;
 		process.env.ZIG = "/tmp/zig";

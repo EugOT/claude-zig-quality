@@ -1,13 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, realpath } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
-	gitMetadataMount,
 	parseCoverageDockerArgs,
 	shellQuote,
 } from "../../scripts/coverage-docker.ts";
-import { spawnSync } from "../../scripts/lib/runtime.ts";
 
 describe("coverage-docker argument parsing", () => {
 	test("uses fail-closed measured coverage defaults", () => {
@@ -54,26 +49,5 @@ describe("coverage-docker argument parsing", () => {
 		expect(shellQuote("")).toBe("''");
 		expect(shellQuote("a'b")).toBe("'a'\\''b'");
 		expect(shellQuote("95; rm -rf /")).toBe("'95; rm -rf /'");
-	});
-
-	test("gitMetadataMount skips non-repos", async () => {
-		const root = await mkdtemp(join(tmpdir(), "coverage-docker-nonrepo-"));
-		expect(gitMetadataMount(root)).toEqual([]);
-	});
-
-	test("gitMetadataMount skips git dirs nested under the mounted repo", async () => {
-		const root = await mkdtemp(join(tmpdir(), "coverage-docker-repo-"));
-		spawnSync(["git", "init"], { cwd: root });
-		expect(gitMetadataMount(root)).toEqual([]);
-	});
-
-	test("gitMetadataMount mounts external git dirs", async () => {
-		const root = await mkdtemp(join(tmpdir(), "coverage-docker-worktree-"));
-		const gitDir = await mkdtemp(join(tmpdir(), "coverage-docker-gitdir-"));
-		spawnSync(["git", "init", "--separate-git-dir", gitDir, root], {
-			cwd: tmpdir(),
-		});
-		const mounted = await realpath(gitDir);
-		expect(gitMetadataMount(root)).toEqual(["-v", `${mounted}:${mounted}:ro`]);
 	});
 });

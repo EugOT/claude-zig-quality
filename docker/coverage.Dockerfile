@@ -11,14 +11,14 @@ ARG ZIG_SHA256_AMD64=70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52b
 ARG ZIG_SHA256_ARM64=ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
 
 RUN dnf -y --setopt=install_weak_deps=False install \
-		bash \
-		ca-certificates \
-		curl \
-		git \
-		kcov \
-		tar \
-		unzip \
-		xz \
+		bash-5.3.0-2.fc43 \
+		ca-certificates-2025.2.80_v9.0.304-1.2.fc43 \
+		curl-8.15.0-7.fc43 \
+		git-2.54.0-1.fc43 \
+		kcov-43-3.fc43 \
+		tar-1.35-6.fc43 \
+		unzip-6.0-67.fc43 \
+		xz-5.8.1-4.fc43 \
 	&& dnf clean all \
 	&& rm -rf /var/cache/dnf
 

@@ -750,7 +750,7 @@ function assertWorkflow(program: WorkflowProgram): void {
 }
 
 function globPrefix(glob: string): string {
-	const wildcard = glob.search(/[*[{]/);
+	const wildcard = glob.search(/[*?[{]/);
 	const prefix = wildcard === -1 ? glob : glob.slice(0, wildcard);
 	return prefix.replace(/\/+$/, "");
 }

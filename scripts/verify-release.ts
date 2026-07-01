@@ -157,14 +157,12 @@ export function validateSbom(
 		typeof obj.specVersion === "string" ? obj.specVersion : "";
 	if (specVersion === "") errors.push("missing/empty specVersion");
 
-	const componentsRaw = obj.components === null ? undefined : obj.components;
-	const components =
-		componentsRaw === undefined
-			? null
-			: Array.isArray(componentsRaw)
-				? (componentsRaw as Array<Record<string, unknown>>)
-				: null;
-	if (componentsRaw !== undefined && components === null) {
+	const componentsPresent =
+		obj.components !== undefined && obj.components !== null;
+	const components = Array.isArray(obj.components)
+		? (obj.components as Array<Record<string, unknown>>)
+		: null;
+	if (componentsPresent && components === null) {
 		errors.push("components is not an array");
 	}
 	if (components === null && declaredDeps.length > 0) {
@@ -294,7 +292,15 @@ export function signingSignArgs(
 ): string[] {
 	const key = env.COSIGN_KEY;
 	if (key && key.length > 0) {
-		return ["sign-blob", "--key", key, "--yes", "--output-signature", sigPath, artifact];
+		return [
+			"sign-blob",
+			"--key",
+			key,
+			"--yes",
+			"--output-signature",
+			sigPath,
+			artifact,
+		];
 	}
 	return ["sign-blob", "--yes", "--bundle", bundlePath, artifact];
 }
@@ -679,7 +685,10 @@ async function main(): Promise<void> {
 		} else {
 			for (const artifact of artifacts) {
 				const sigPath = `${artifact}.sig`;
-				const sig = spawnSync(["cosign", ...signingSignArgs(artifact, sigPath)]);
+				const sig = spawnSync([
+					"cosign",
+					...signingSignArgs(artifact, sigPath),
+				]);
 				if (sig.code !== 0) {
 					console.error(`verify-release: sign-blob failed for ${artifact}`);
 					console.error(tail(sig.stderr));

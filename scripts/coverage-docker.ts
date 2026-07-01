@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { repoRoot, spawnSync } from "./lib/runtime.ts";
 
@@ -90,12 +89,9 @@ function requireDocker(): void {
 
 function buildImage(root: string, args: CoverageDockerArgs): void {
 	const dockerfile = resolve(root, DOCKERFILE);
-	if (!existsSync(dockerfile)) {
-		throw new Error(`coverage Dockerfile not found: ${dockerfile}`);
-	}
 	const cmd = ["docker", "build", "-f", dockerfile, "-t", args.image];
 	if (args.platform) cmd.push("--platform", args.platform);
-	cmd.push(root);
+	cmd.push(resolve(root, "docker"));
 	const result = spawnSync(cmd, {
 		cwd: root,
 		timeout: DOCKER_BUILD_TIMEOUT_MS,
@@ -110,19 +106,6 @@ function buildImage(root: string, args: CoverageDockerArgs): void {
 	if (result.code !== 0) {
 		throw new Error(`docker build failed with exit ${result.code}`);
 	}
-}
-
-export function gitMetadataMount(root: string): string[] {
-	const result = spawnSync(["git", "rev-parse", "--git-dir"], {
-		cwd: root,
-		timeout: DOCKER_INFO_TIMEOUT_MS,
-	});
-	if (result.code !== 0) return [];
-	const raw = result.stdout.trim();
-	if (raw.length === 0) return [];
-	const gitDir = raw.startsWith("/") ? raw : resolve(root, raw);
-	if (!existsSync(gitDir) || gitDir.startsWith(`${root}/`)) return [];
-	return ["-v", `${gitDir}:${gitDir}:ro`];
 }
 
 export function shellQuote(value: string): string {
@@ -163,7 +146,6 @@ function runCoverage(root: string, args: CoverageDockerArgs): number {
 		`ZIG_QM_PLATFORM_LANE=${process.env.ZIG_QM_PLATFORM_LANE ?? lane}`,
 		"-v",
 		`${root}:/work`,
-		...gitMetadataMount(root),
 		"-w",
 		"/work",
 	];

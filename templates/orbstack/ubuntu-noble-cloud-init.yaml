@@ -7,9 +7,11 @@ packages:
   - ca-certificates
   - unzip
 runcmd:
-  - command -v mise || (echo "install mise from a pinned package or checksum-verified artifact before running this template" >&2; exit 1)
-  - command -v bun || (echo "install bun from a pinned package or checksum-verified artifact before running this template" >&2; exit 1)
-  - mise use -g zig@0.16.0
+  - |
+    set -e
+    command -v mise || (echo "install mise from a pinned package or checksum-verified artifact before running this template" >&2; exit 1)
+    command -v bun || (echo "install bun from a pinned package or checksum-verified artifact before running this template" >&2; exit 1)
+    mise use -g zig@0.16.0
 
 # kcov is intentionally not listed above: Ubuntu noble arm64 may not publish a
 # kcov package in the default apt repos. Keep coverage advisory until the image

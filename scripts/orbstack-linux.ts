@@ -11,7 +11,8 @@ export type OrbStackOptions = {
 };
 
 const DEFAULT_MACHINE = "zig-qm-arch";
-const DEFAULT_IMAGE = "arch:current";
+const DEFAULT_IMAGE =
+	"archlinux:base@sha256:068a765646e75e51fe5d544b0f95c85d0322d0a372659e9d5f10fb8402ca53f1";
 const ORBSTACK_CREATE_TIMEOUT_MS = 300_000;
 const ORBSTACK_RUN_TIMEOUT_MS = 900_000;
 

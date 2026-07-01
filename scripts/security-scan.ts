@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { repoRoot, spawnSync } from "./lib/runtime.ts";
+
 const SECURITY_CHECK_TIMEOUT_MS = 120_000;
 
 export type SecurityCheck = {
@@ -9,7 +10,7 @@ export type SecurityCheck = {
 };
 
 export type SecurityResult = SecurityCheck & {
-	status: "passed" | "failed" | "skipped";
+	status: "passed" | "failed" | "skipped" | "timed-out";
 	code: number | null;
 };
 
@@ -53,7 +54,7 @@ export function defaultSecurityChecks(): SecurityCheck[] {
 				"--log-opts",
 				process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS ?? "--max-count=200",
 			],
-			required: false,
+			required: true,
 		});
 	}
 	return checks;
@@ -80,12 +81,19 @@ export function runSecurityChecks(
 			results.push({ ...check, status: "skipped", code: null });
 			continue;
 		}
-		const result = spawnSync(check.command, { cwd, timeout: SECURITY_CHECK_TIMEOUT_MS });
+		const result = spawnSync(check.command, {
+			cwd,
+			timeout: SECURITY_CHECK_TIMEOUT_MS,
+		});
 		process.stdout.write(result.stdout);
 		process.stderr.write(result.stderr);
 		results.push({
 			...check,
-			status: result.code === 0 ? "passed" : "failed",
+			status: result.timedOut
+				? "timed-out"
+				: result.code === 0
+					? "passed"
+					: "failed",
 			code: result.code,
 		});
 	}

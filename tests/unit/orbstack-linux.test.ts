@@ -12,22 +12,36 @@ import {
 
 describe("orbstack-linux command builder", () => {
 	test("parses defaults and builds the standard Linux command", () => {
-		const opts = parseOrbStackArgs(["--repo", "/tmp/repo"]);
-		expect(opts.machine).toBe("zig-qm-arch");
-		expect(opts.image).toBe("arch:current");
-		expect(opts.command).toBe(defaultLinuxCommand("/tmp/repo"));
-		expect(opts.command).toContain(
-			'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"',
-		);
-		expect(opts.command).toContain(
-			"export ZIG_QM_PLATFORM_LANE=orbstack-linux",
-		);
-		expect(opts.command).toContain("bun scripts/verify-pr.ts");
-		expect(opts.command).toContain(
-			"bun scripts/coverage-linux.ts --fail-under-lines 95",
-		);
-		expect(opts.command).not.toContain("--skip-missing-kcov");
-		expect(opts.command).toContain("bun scripts/security-scan.ts");
+		const savedMachine = process.env.ZIG_QM_ORBSTACK_MACHINE;
+		const savedImage = process.env.ZIG_QM_ORBSTACK_IMAGE;
+		delete process.env.ZIG_QM_ORBSTACK_MACHINE;
+		delete process.env.ZIG_QM_ORBSTACK_IMAGE;
+		try {
+			const opts = parseOrbStackArgs(["--repo", "/tmp/repo"]);
+			expect(opts.machine).toBe("zig-qm-arch");
+			expect(opts.image).toBe(
+				"archlinux:base@sha256:068a765646e75e51fe5d544b0f95c85d0322d0a372659e9d5f10fb8402ca53f1",
+			);
+			expect(opts.command).toBe(defaultLinuxCommand("/tmp/repo"));
+			expect(opts.command).toContain(
+				'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"',
+			);
+			expect(opts.command).toContain(
+				"export ZIG_QM_PLATFORM_LANE=orbstack-linux",
+			);
+			expect(opts.command).toContain("bun scripts/verify-pr.ts");
+			expect(opts.command).toContain(
+				"bun scripts/coverage-linux.ts --fail-under-lines 95",
+			);
+			expect(opts.command).not.toContain("--skip-missing-kcov");
+			expect(opts.command).toContain("bun scripts/security-scan.ts");
+		} finally {
+			if (savedMachine === undefined)
+				delete process.env.ZIG_QM_ORBSTACK_MACHINE;
+			else process.env.ZIG_QM_ORBSTACK_MACHINE = savedMachine;
+			if (savedImage === undefined) delete process.env.ZIG_QM_ORBSTACK_IMAGE;
+			else process.env.ZIG_QM_ORBSTACK_IMAGE = savedImage;
+		}
 	});
 
 	test("parses create and dry-run flags", () => {

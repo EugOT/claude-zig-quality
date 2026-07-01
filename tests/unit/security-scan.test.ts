@@ -67,6 +67,22 @@ describe("security-scan summary", () => {
 			failedRequired: ["required-missing"],
 		});
 	});
+
+	test("fails when required checks time out", () => {
+		const results: SecurityResult[] = [
+			{
+				name: "required-timeout",
+				command: ["tool"],
+				required: true,
+				status: "timed-out",
+				code: null,
+			},
+		];
+		expect(summarizeSecurity(results)).toEqual({
+			ok: false,
+			failedRequired: ["required-timeout"],
+		});
+	});
 });
 describe("security-scan runner", () => {
 	test("marks missing tools as skipped", () => {

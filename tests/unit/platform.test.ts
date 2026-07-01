@@ -47,16 +47,14 @@ describe("platform lane detection", () => {
 		expect(facts.securityAuthority).toBe(false);
 	});
 
-	test("detects OrbStack marker aliases", () => {
-		for (const env of [
-			{ ORBSTACK: "true" },
-			{ ORB_STACK_MACHINE: "zig-qm" },
-			{ ZIG_QM_ORBSTACK_MACHINE: "zig-qm" },
-		]) {
-			expect(detectPlatformLane({ platform: "linux", env })).toBe(
-				"orbstack-linux",
-			);
-		}
+	test.each([
+		{ ORBSTACK: "true" },
+		{ ORB_STACK_MACHINE: "zig-qm" },
+		{ ZIG_QM_ORBSTACK_MACHINE: "zig-qm" },
+	])("detects OrbStack marker alias %o", (env) => {
+		expect(detectPlatformLane({ platform: "linux", env })).toBe(
+			"orbstack-linux",
+		);
 	});
 
 	test("CI wins over OrbStack markers", () => {
@@ -82,16 +80,16 @@ describe("platform lane detection", () => {
 	});
 
 	test("explicit ci-linux override keeps ci facts coherent", () => {
-		expect(
-			detectPlatform({
-				platform: "darwin",
-				env: { ZIG_QM_PLATFORM_LANE: "ci-linux" },
-			}),
-		).toEqual({ lane: "ci-linux", ci: true, orbstack: false });
-		const facts = platformFacts({
+		const input = {
 			platform: "darwin",
 			env: { ZIG_QM_PLATFORM_LANE: "ci-linux" },
+		} as const;
+		expect(detectPlatform(input)).toEqual({
+			lane: "ci-linux",
+			ci: true,
+			orbstack: false,
 		});
+		const facts = platformFacts(input);
 		expect(facts.lane).toBe("ci-linux");
 		expect(facts.ci).toBe(true);
 		expect(facts.coverageAuthority).toBe(true);

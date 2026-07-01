@@ -96,11 +96,24 @@ export function assertSafeCoverageOutput(
 			"--output must be under zig-out/coverage/ or coverage/kcov/",
 		);
 	}
+	const isRepo = spawnSync(["git", "rev-parse", "--is-inside-work-tree"], {
+		cwd: root,
+		timeout: 5_000,
+	});
+	if (isRepo.timedOut) {
+		throw new Error(`--output safety check timed out for ${rel}`);
+	}
+	if (isRepo.code !== 0) return;
 	const tracked = spawnSync(["git", "ls-files", "--", rel], {
 		cwd: root,
 		timeout: 5_000,
 	});
-	if (tracked.code === 0 && tracked.stdout.trim().length > 0) {
+	if (tracked.timedOut || tracked.code !== 0) {
+		throw new Error(
+			`--output safety check failed for ${rel}; refusing to delete`,
+		);
+	}
+	if (tracked.stdout.trim().length > 0) {
 		throw new Error(`--output contains tracked files: ${rel}`);
 	}
 }
@@ -118,6 +131,7 @@ export function parseCoverageArgs(argv: string[]): CoverageOptions {
 	let allowNonLinux = false;
 	let skipMissingKcov = false;
 	let targets: string[] = ["src/hello.zig", "src/lib.zig", "src/root.zig"];
+	let targetsExplicit = false;
 	let command: string[] = [
 		"mise",
 		"x",
@@ -163,6 +177,10 @@ export function parseCoverageArgs(argv: string[]): CoverageOptions {
 				skipMissingKcov = true;
 				break;
 			case "--target":
+				if (!targetsExplicit) {
+					targets = [];
+					targetsExplicit = true;
+				}
 				targets.push(takeValue(argv, i, arg));
 				i++;
 				break;
@@ -172,6 +190,7 @@ export function parseCoverageArgs(argv: string[]): CoverageOptions {
 					.split(",")
 					.map((s) => s.trim())
 					.filter((s) => s.length > 0);
+				targetsExplicit = true;
 				i++;
 				break;
 			}

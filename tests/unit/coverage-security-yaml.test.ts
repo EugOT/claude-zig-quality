@@ -7,7 +7,10 @@ const workflowPath = resolve(
 	repoRoot(),
 	".forgejo/workflows/coverage-security.yaml",
 );
-const templatePath = resolve(repoRoot(), "templates/forgejo/coverage-security.yaml");
+const templatePath = resolve(
+	repoRoot(),
+	"templates/forgejo/coverage-security.yaml",
+);
 
 async function readWorkflowCopies(): Promise<string[]> {
 	return Promise.all([
@@ -44,5 +47,6 @@ test("coverage-security workflow keeps install errors honest", async () => {
 
 test("coverage-security template mirrors live workflow", async () => {
 	const [live, template] = await readWorkflowCopies();
-	expect(template).toBe(live.replace(/\r\n/g, "\n"));
+	const normalize = (text: string) => text.replace(/\r\n/g, "\n");
+	expect(normalize(template)).toBe(normalize(live));
 });
