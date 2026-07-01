@@ -116,7 +116,8 @@ export type SbomValidation = {
  * Checks:
  *   - parses as JSON and is an object;
  *   - `bomFormat` == "CycloneDX" and a non-empty `specVersion`;
- *   - `components` is an array (a dependency-bearing project must list them);
+ *   - `components`, when present, is an array;
+ *   - dependency-bearing projects must list components;
  *   - every name in `declaredDeps` appears as a component `name` (so the SBOM
  *     is not silently missing a declared dependency).
  *
@@ -156,11 +157,18 @@ export function validateSbom(
 		typeof obj.specVersion === "string" ? obj.specVersion : "";
 	if (specVersion === "") errors.push("missing/empty specVersion");
 
-	const components = Array.isArray(obj.components)
-		? (obj.components as Array<Record<string, unknown>>)
-		: null;
-	if (components === null) {
+	const componentsRaw = obj.components;
+	const components =
+		componentsRaw === undefined
+			? null
+			: Array.isArray(componentsRaw)
+				? (componentsRaw as Array<Record<string, unknown>>)
+				: null;
+	if (componentsRaw !== undefined && components === null) {
 		errors.push("components is not an array");
+	}
+	if (components === null && declaredDeps.length > 0) {
+		errors.push("components is required when declared dependencies exist");
 	}
 	const componentNames = new Set(
 		(components ?? [])
