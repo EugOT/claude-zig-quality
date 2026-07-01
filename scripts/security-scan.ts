@@ -34,7 +34,10 @@ export function gitDiffCheckCommand(
 		env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME ??
 		env.CI_DEFAULT_BRANCH;
 	if (baseRef && baseRef.length > 0) {
-		const remoteBase = baseRef.includes("/") ? baseRef : `origin/${baseRef}`;
+		const remoteBase =
+			baseRef.startsWith("refs/") || baseRef.startsWith("origin/")
+				? baseRef
+				: `origin/${baseRef}`;
 		const quotedBase = shellQuote(remoteBase);
 		return [
 			"sh",

@@ -127,5 +127,6 @@ describe("coverage-docker argument parsing", () => {
 		expect(cmd).toContain("linux/arm64");
 		expect(cmd).toContain("local/image");
 		expect(cmd.at(-1)).toContain("coverage-linux.ts --fail-under-lines '95'");
+		expect(cmd.at(-1)).not.toContain("bun ci");
 	});
 });

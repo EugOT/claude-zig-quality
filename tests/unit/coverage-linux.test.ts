@@ -395,6 +395,25 @@ describe("coverage summary parsing", () => {
 		expect(summary.source).toBe("merged:2");
 	});
 
+	test("aggregates file-only kcov summaries", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-summary-"));
+		await mkdir(join(root, "target-a"), { recursive: true });
+		await writeFile(
+			join(root, "target-a/coverage.json"),
+			JSON.stringify({
+				files: [
+					{ file: "/repo/src/a.zig", covered_lines: 3, total_lines: 4 },
+					{ file: "/repo/src/b.zig", covered_lines: 5, total_lines: 5 },
+				],
+			}),
+		);
+		const summary = await readSummary(root);
+		expect(summary.coveredLines).toBe(8);
+		expect(summary.totalLines).toBe(9);
+		expect(summary.linePercent).toBeCloseTo((8 / 9) * 100);
+		expect(summary.source).toBe("merged-files:2");
+	});
+
 	test("deduplicates per-file kcov summaries across targets", async () => {
 		const root = await mkdtemp(join(tmpdir(), "coverage-summary-"));
 		await mkdir(join(root, "target-a"), { recursive: true });
@@ -428,6 +447,45 @@ describe("coverage summary parsing", () => {
 		expect(summary.totalLines).toBe(25);
 		expect(summary.linePercent).toBeCloseTo(84);
 		expect(summary.source).toBe("merged-files:3");
+	});
+
+	test("unions per-line coverage for files hit by multiple targets", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-summary-"));
+		await mkdir(join(root, "target-a"), { recursive: true });
+		await mkdir(join(root, "target-b"), { recursive: true });
+		await writeFile(
+			join(root, "target-a/coverage.json"),
+			JSON.stringify({
+				files: [
+					{
+						file: "/repo/src/a.zig",
+						lines: [
+							{ line: 1, count: 1 },
+							{ line: 2, count: 0 },
+						],
+					},
+				],
+			}),
+		);
+		await writeFile(
+			join(root, "target-b/coverage.json"),
+			JSON.stringify({
+				files: [
+					{
+						file: "/repo/src/a.zig",
+						lines: [
+							{ line: 2, count: 1 },
+							{ line: 3, count: 0 },
+						],
+					},
+				],
+			}),
+		);
+		const summary = await readSummary(root);
+		expect(summary.coveredLines).toBe(2);
+		expect(summary.totalLines).toBe(3);
+		expect(summary.linePercent).toBeCloseTo((2 / 3) * 100);
+		expect(summary.source).toBe("merged-files:1");
 	});
 
 	test("skips malformed candidate summaries and keeps usable ones", async () => {

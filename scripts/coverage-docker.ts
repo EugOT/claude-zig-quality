@@ -129,7 +129,6 @@ export function buildRunCommand(
 	const inner = [
 		"set -euo pipefail",
 		'mkdir -p "$HOME" "$BUN_INSTALL_CACHE_DIR" "$XDG_CACHE_HOME"',
-		"bun ci",
 		"bun scripts/coverage-linux.ts --fail-under-lines " +
 			shellQuote(args.failUnderLines),
 	].join("; ");

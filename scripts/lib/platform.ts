@@ -90,9 +90,8 @@ export function detectPlatformLane(
 }
 
 export function platformFacts(opts: PlatformDetectOptions = {}): PlatformFacts {
-	const env = opts.env ?? process.env;
 	const platform = opts.platform ?? process.platform;
-	const detection = detectPlatform({ env, platform });
+	const detection = detectPlatform(opts);
 	const { lane, ci, orbstack } = detection;
 	const linuxAuthority = lane === "orbstack-linux" || lane === "ci-linux";
 	const notes: string[] = [];

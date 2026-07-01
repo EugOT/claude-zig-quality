@@ -31,6 +31,8 @@ export type CoverageFileSummary = {
 	file: string;
 	coveredLines: number;
 	totalLines: number;
+	coveredLineNumbers?: number[];
+	totalLineNumbers?: number[];
 };
 
 export type CoverageEvent = {
@@ -381,6 +383,65 @@ function validLineCounts(
 	return { coveredLines, totalLines };
 }
 
+function lineNumberFromUnknown(value: unknown): number | null {
+	const n = numberFromUnknown(value);
+	if (n === null || !Number.isInteger(n) || n <= 0) return null;
+	return n;
+}
+
+function lineIsCovered(value: unknown): boolean {
+	if (typeof value === "boolean") return value;
+	const n = numberFromUnknown(value);
+	return n !== null && n > 0;
+}
+
+function parseLineDetail(
+	entry: Record<string, unknown>,
+): { coveredLineNumbers: number[]; totalLineNumbers: number[] } | null {
+	const covered = new Set<number>();
+	const total = new Set<number>();
+	const rawLines = entry.lines;
+	if (Array.isArray(rawLines)) {
+		for (const rawLine of rawLines) {
+			if (typeof rawLine !== "object" || rawLine === null) continue;
+			const line = rawLine as Record<string, unknown>;
+			const lineNo =
+				lineNumberFromUnknown(line.line) ??
+				lineNumberFromUnknown(line.line_number) ??
+				lineNumberFromUnknown(line.number);
+			if (lineNo === null) continue;
+			total.add(lineNo);
+			if (
+				lineIsCovered(line.count) ||
+				lineIsCovered(line.hits) ||
+				lineIsCovered(line.covered)
+			) {
+				covered.add(lineNo);
+			}
+		}
+	}
+	for (const key of ["line_hits", "lineHits", "hits"]) {
+		const rawHits = entry[key];
+		if (
+			typeof rawHits !== "object" ||
+			rawHits === null ||
+			Array.isArray(rawHits)
+		)
+			continue;
+		for (const [line, hits] of Object.entries(rawHits)) {
+			const lineNo = lineNumberFromUnknown(line);
+			if (lineNo === null) continue;
+			total.add(lineNo);
+			if (lineIsCovered(hits)) covered.add(lineNo);
+		}
+	}
+	if (total.size === 0) return null;
+	return {
+		coveredLineNumbers: [...covered].sort((a, b) => a - b),
+		totalLineNumbers: [...total].sort((a, b) => a - b),
+	};
+}
+
 function parseCoverageFiles(
 	doc: Record<string, unknown>,
 ): CoverageFileSummary[] {
@@ -392,6 +453,16 @@ function parseCoverageFiles(
 		const entry = rawFile as Record<string, unknown>;
 		const file = entry.file;
 		if (typeof file !== "string" || file.length === 0) continue;
+		const lineDetail = parseLineDetail(entry);
+		if (lineDetail !== null) {
+			files.push({
+				file,
+				coveredLines: lineDetail.coveredLineNumbers.length,
+				totalLines: lineDetail.totalLineNumbers.length,
+				...lineDetail,
+			});
+			continue;
+		}
 		const counts = validLineCounts(
 			numberFromUnknown(entry.covered_lines),
 			numberFromUnknown(entry.total_lines),
@@ -480,8 +551,25 @@ function mergeCoverageSummaries(
 	summaries: ParsedCoverageSummary[],
 ): CoverageSummary | null {
 	const fileCounts = new Map<string, CoverageFileSummary>();
+	const lineCounts = new Map<
+		string,
+		{ covered: Set<number>; total: Set<number> }
+	>();
 	for (const summary of summaries) {
 		for (const file of summary.files ?? []) {
+			if (
+				file.coveredLineNumbers !== undefined &&
+				file.totalLineNumbers !== undefined
+			) {
+				const counts = lineCounts.get(file.file) ?? {
+					covered: new Set<number>(),
+					total: new Set<number>(),
+				};
+				for (const line of file.coveredLineNumbers) counts.covered.add(line);
+				for (const line of file.totalLineNumbers) counts.total.add(line);
+				lineCounts.set(file.file, counts);
+				continue;
+			}
 			const existing = fileCounts.get(file.file);
 			if (
 				existing === undefined ||
@@ -492,6 +580,15 @@ function mergeCoverageSummaries(
 				fileCounts.set(file.file, file);
 			}
 		}
+	}
+	for (const [file, counts] of lineCounts) {
+		fileCounts.set(file, {
+			file,
+			coveredLines: counts.covered.size,
+			totalLines: counts.total.size,
+			coveredLineNumbers: [...counts.covered].sort((a, b) => a - b),
+			totalLineNumbers: [...counts.total].sort((a, b) => a - b),
+		});
 	}
 	if (fileCounts.size > 0) {
 		let coveredLines = 0;
@@ -576,7 +673,8 @@ export async function readSummary(outputDir: string): Promise<CoverageSummary> {
 		} catch {
 			continue;
 		}
-		if (summary.linePercent === null) continue;
+		if (summary.linePercent === null && (summary.files?.length ?? 0) === 0)
+			continue;
 		const withSource = { ...summary, source: path, path, topLevel };
 		summaries.push(withSource);
 		const bestLines = best?.totalLines ?? -1;

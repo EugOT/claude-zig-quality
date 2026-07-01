@@ -75,7 +75,8 @@ describe("orbstack-linux command builder", () => {
 		expect(opts.command).toBe(
 			defaultLinuxCommand("/tmp/repo", { coverage: false }),
 		);
-		expect(opts.command).not.toContain("coverage-linux.ts");
+		expect(opts.command).not.toContain("bun scripts/coverage-linux.ts");
+		expect(opts.command).toContain("skipping coverage-linux.ts");
 		expect(opts.command).toContain("bun scripts/security-scan.ts");
 	});
 

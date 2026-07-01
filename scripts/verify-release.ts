@@ -173,7 +173,7 @@ export function validateSbom(
 			.map((c) => (typeof c?.name === "string" ? c.name : null))
 			.filter((n): n is string => n !== null),
 	);
-	if (componentsPresent) {
+	if (components !== null) {
 		for (const dep of declaredDeps) {
 			if (!componentNames.has(dep)) {
 				errors.push(

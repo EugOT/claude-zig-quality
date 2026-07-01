@@ -164,6 +164,14 @@ describe("security-scan runner", () => {
 			"git merge-base HEAD 'origin/main'",
 		);
 		expect(mergeBaseCommand.at(-1)).toContain("git diff --check");
+		const slashBranchCommand = gitDiffCheckCommand({
+			GITHUB_BASE_REF: "release/1.x",
+		});
+		expect(slashBranchCommand[0]).toBe("sh");
+		expect(slashBranchCommand.at(-1)).toContain(
+			"git merge-base HEAD 'origin/release/1.x'",
+		);
+		expect(slashBranchCommand.at(-1)).toContain("git diff --check");
 	});
 
 	test("marks missing tools as skipped", () => {

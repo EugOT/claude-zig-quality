@@ -41,6 +41,10 @@ export function defaultLinuxCommand(
 	];
 	if (opts.coverage)
 		commands.push("bun scripts/coverage-linux.ts --fail-under-lines 95");
+	else
+		commands.push(
+			'echo "orbstack-linux: skipping coverage-linux.ts because this image does not provide kcov" >&2',
+		);
 	commands.push("bun scripts/security-scan.ts");
 	return commands.join(" && ");
 }

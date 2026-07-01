@@ -786,8 +786,7 @@ function globsMayOverlap(left: string, right: string): boolean {
 	if (leftPrefix.length === 0 || rightPrefix.length === 0) return true;
 	return (
 		leftPrefix.startsWith(`${rightPrefix}/`) ||
-		rightPrefix.startsWith(`${leftPrefix}/`) ||
-		leftPrefix === rightPrefix
+		rightPrefix.startsWith(`${leftPrefix}/`)
 	);
 }
 

@@ -64,6 +64,9 @@ test("validateSbom does not report missing components when components is malform
 	expect(r.errors).not.toContain(
 		"components is required when declared dependencies exist",
 	);
+	expect(r.errors).not.toContain(
+		'declared dependency "ziglint" is not present as an SBOM component',
+	);
 });
 
 test("validateSbom flags a declared dependency missing from components", () => {
