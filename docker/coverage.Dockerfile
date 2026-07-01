@@ -10,11 +10,18 @@ ARG ZIG_VERSION=0.16.0
 ARG ZIG_SHA256_AMD64=70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 ARG ZIG_SHA256_ARM64=ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
 
-RUN dnf -y --setopt=install_weak_deps=False install \
+RUN set -eu; \
+	fedora_release_repo="https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Everything/$(rpm --eval '%{_arch}')/os/"; \
+	dnf -y \
+		--disablerepo='*' \
+		--repofrompath=fedora-release,"${fedora_release_repo}" \
+		--setopt=fedora-release.gpgcheck=0 \
+		--setopt=install_weak_deps=False \
+		install \
 		bash-5.3.0-2.fc43 \
 		ca-certificates-2025.2.80_v9.0.304-1.2.fc43 \
 		curl-8.15.0-7.fc43 \
-		git-2.54.0-1.fc43 \
+		git-2.51.0-2.fc43 \
 		kcov-43-3.fc43 \
 		tar-1.35-6.fc43 \
 		unzip-6.0-67.fc43 \

@@ -10,8 +10,8 @@ runcmd:
   - |
     set -e
     export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
-    command -v mise || (echo "install mise from a pinned package or checksum-verified artifact before running this template" >&2; exit 1)
-    command -v bun || (echo "install bun from a pinned package or checksum-verified artifact before running this template" >&2; exit 1)
+    command -v mise || { echo "install mise from a pinned package or checksum-verified artifact before running this template" >&2; exit 1; }
+    command -v bun || { echo "install bun from a pinned package or checksum-verified artifact before running this template" >&2; exit 1; }
     mise use -g zig@0.16.0
 
 # kcov is intentionally not listed above: Ubuntu noble arm64 may not publish a

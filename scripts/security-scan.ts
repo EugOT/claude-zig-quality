@@ -63,6 +63,7 @@ export function summarizeSecurity(results: SecurityResult[]): {
 export function runSecurityChecks(
 	checks: SecurityCheck[] = defaultSecurityChecks(),
 	cwd = repoRoot(),
+	timeoutMs = SECURITY_CHECK_TIMEOUT_MS,
 ): SecurityResult[] {
 	const results: SecurityResult[] = [];
 	for (const check of checks) {
@@ -73,7 +74,7 @@ export function runSecurityChecks(
 		}
 		const result = spawnSync(check.command, {
 			cwd,
-			timeout: SECURITY_CHECK_TIMEOUT_MS,
+			timeout: timeoutMs,
 		});
 		process.stdout.write(result.stdout);
 		process.stderr.write(result.stderr);

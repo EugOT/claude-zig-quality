@@ -323,10 +323,26 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 			};
 		}
 	}
+	const coveredLines = numberFromUnknown(doc.covered_lines);
+	const totalLines = numberFromUnknown(doc.total_lines);
+	if (
+		coveredLines !== null &&
+		totalLines !== null &&
+		totalLines > 0 &&
+		coveredLines >= 0 &&
+		coveredLines <= totalLines
+	) {
+		return {
+			linePercent: (coveredLines / totalLines) * 100,
+			coveredLines,
+			totalLines,
+			source: "json.counts",
+		};
+	}
 	return {
 		linePercent: null,
-		coveredLines: numberFromUnknown(doc.covered_lines),
-		totalLines: numberFromUnknown(doc.total_lines),
+		coveredLines,
+		totalLines,
 		source: "json",
 	};
 }

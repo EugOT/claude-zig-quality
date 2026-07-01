@@ -141,4 +141,27 @@ describe("security-scan runner", () => {
 			["shell-fail", "failed", 7],
 		]);
 	});
+
+	test("marks commands that exceed the timeout", () => {
+		const results = runSecurityChecks(
+			[
+				{
+					name: "shell-timeout",
+					command: ["sh", "-c", "sleep 1"],
+					required: true,
+				},
+			],
+			process.cwd(),
+			10,
+		);
+		expect(results).toEqual([
+			{
+				name: "shell-timeout",
+				command: ["sh", "-c", "sleep 1"],
+				required: true,
+				status: "timed-out",
+				code: null,
+			},
+		]);
+	});
 });

@@ -18,16 +18,25 @@ const DEFAULT_IMAGE =
 const ORBSTACK_CREATE_TIMEOUT_MS = 300_000;
 const ORBSTACK_RUN_TIMEOUT_MS = 900_000;
 
-export function defaultLinuxCommand(repo: string): string {
-	return [
+export function imageHasKcov(image: string): boolean {
+	return !/^ubuntu(?::|@)/.test(image);
+}
+
+export function defaultLinuxCommand(
+	repo: string,
+	opts: { coverage: boolean } = { coverage: true },
+): string {
+	const commands = [
 		'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"',
 		"export ZIG_QM_PLATFORM_LANE=orbstack-linux",
 		`cd ${shellQuote(repo)}`,
 		"bun install --frozen-lockfile",
 		"bun scripts/verify-pr.ts",
-		"bun scripts/coverage-linux.ts --fail-under-lines 95",
-		"bun scripts/security-scan.ts",
-	].join(" && ");
+	];
+	if (opts.coverage)
+		commands.push("bun scripts/coverage-linux.ts --fail-under-lines 95");
+	commands.push("bun scripts/security-scan.ts");
+	return commands.join(" && ");
 }
 
 function takeValue(
@@ -84,7 +93,8 @@ export function parseOrbStackArgs(argv: string[]): OrbStackOptions {
 		machine,
 		image,
 		repo,
-		command: command || defaultLinuxCommand(repo),
+		command:
+			command || defaultLinuxCommand(repo, { coverage: imageHasKcov(image) }),
 		create,
 		dryRun,
 	};
@@ -110,6 +120,10 @@ function printCommand(cmd: string[]): void {
 	console.log(cmd.map(shellQuote).join(" "));
 }
 
+export function orbCreateAlreadyExists(output: string): boolean {
+	return /already exists|exists already|machine .* exists/i.test(output);
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<void> {
 	const opts = parseOrbStackArgs(argv);
 	if (!opts.dryRun && Bun.which("orb") === null) {
@@ -132,7 +146,14 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 				);
 				process.exit(124);
 			}
-			if (created.code !== 0) process.exit(created.code ?? 1);
+			if (created.code !== 0) {
+				const combined = `${created.stdout}\n${created.stderr}`;
+				if (orbCreateAlreadyExists(combined)) {
+					console.error("orbstack-linux: machine already exists; continuing");
+				} else {
+					process.exit(created.code ?? 1);
+				}
+			}
 		}
 	}
 

@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { repoRoot } from "../../scripts/lib/runtime.ts";
 import {
 	defaultLinuxCommand,
+	imageHasKcov,
+	orbCreateAlreadyExists,
 	orbCreateArgs,
 	orbRunArgs,
 	parseOrbStackArgs,
@@ -62,6 +64,21 @@ describe("orbstack-linux command builder", () => {
 		expect(opts.dryRun).toBe(true);
 	});
 
+	test("omits advisory coverage for Ubuntu default commands", () => {
+		const opts = parseOrbStackArgs([
+			"--repo",
+			"/tmp/repo",
+			"--image",
+			"ubuntu:noble",
+		]);
+		expect(imageHasKcov(opts.image)).toBe(false);
+		expect(opts.command).toBe(
+			defaultLinuxCommand("/tmp/repo", { coverage: false }),
+		);
+		expect(opts.command).not.toContain("coverage-linux.ts");
+		expect(opts.command).toContain("bun scripts/security-scan.ts");
+	});
+
 	test("allows option-looking command payloads", () => {
 		const opts = parseOrbStackArgs(["--command", "--version"]);
 		expect(opts.command).toBe("--version");
@@ -94,6 +111,13 @@ describe("orbstack-linux command builder", () => {
 		expect(shellQuote("a'b")).toBe("'a'\\''b'");
 	});
 
+	test("recognizes idempotent orb create errors", () => {
+		expect(orbCreateAlreadyExists("machine zig-qm-arch already exists")).toBe(
+			true,
+		);
+		expect(orbCreateAlreadyExists("permission denied")).toBe(false);
+	});
+
 	test("Arch bootstrap template installs kcov", async () => {
 		const text = await readFile(
 			resolve(repoRoot(), "templates/orbstack/arch-kcov-bootstrap.bash"),
@@ -114,6 +138,8 @@ describe("orbstack-linux command builder", () => {
 		);
 		expect(text).toContain("command -v mise");
 		expect(text).toContain("command -v bun");
+		expect(text).toContain("command -v mise || {");
+		expect(text).toContain("command -v bun || {");
 		expect(text).toContain("mise use -g zig@0.16.0");
 		expect(text).toContain("kcov is intentionally not listed");
 		expect(text).not.toContain("  - kcov");

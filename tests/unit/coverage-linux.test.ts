@@ -258,6 +258,17 @@ describe("coverage summary parsing", () => {
 		});
 	});
 
+	test("derives line coverage from count-only summaries", () => {
+		expect(
+			parseCoverageSummary('{"covered_lines":73,"total_lines":76}'),
+		).toEqual({
+			linePercent: (73 / 76) * 100,
+			coveredLines: 73,
+			totalLines: 76,
+			source: "json.counts",
+		});
+	});
+
 	test("returns null when no known coverage key exists", () => {
 		expect(parseCoverageSummary('{"foo": 1}')).toEqual({
 			linePercent: null,
