@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	defaultSecurityChecks,
 	runSecurityChecks,
 	type SecurityResult,
 	summarizeSecurity,
@@ -85,6 +86,15 @@ describe("security-scan summary", () => {
 	});
 });
 describe("security-scan runner", () => {
+	test("keeps required default checks even when tools are absent", () => {
+		const requiredNames = defaultSecurityChecks()
+			.filter((check) => check.required)
+			.map((check) => check.name);
+		expect(requiredNames).toContain("git-diff-check");
+		expect(requiredNames).toContain("bun-audit");
+		expect(requiredNames).toContain("secret-scan");
+	});
+
 	test("marks missing tools as skipped", () => {
 		const results = runSecurityChecks([
 			{

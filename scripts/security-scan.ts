@@ -19,32 +19,21 @@ function toolExists(tool: string): boolean {
 }
 
 export function defaultSecurityChecks(): SecurityCheck[] {
-	// `toolExists` filters the default suite for this host. `runSecurityChecks`
-	// repeats the lookup for caller-supplied checks, so required custom checks
-	// still fail closed when their tool is absent.
+	// Required checks stay in the default suite even when a tool is absent;
+	// `runSecurityChecks` records the missing tool as skipped and the summary
+	// fails closed instead of silently narrowing the security gate.
 	const checks: SecurityCheck[] = [
 		{
 			name: "git-diff-check",
 			command: ["git", "diff", "--check"],
 			required: true,
 		},
-	];
-	if (toolExists("bun")) {
-		checks.push({
+		{
 			name: "bun-audit",
 			command: ["bun", "audit"],
 			required: true,
-		});
-	}
-	if (toolExists("zizmor")) {
-		checks.push({
-			name: "workflow-security",
-			command: ["zizmor", ".forgejo/workflows"],
-			required: false,
-		});
-	}
-	if (toolExists("gitleaks")) {
-		checks.push({
+		},
+		{
 			name: "secret-scan",
 			command: [
 				"gitleaks",
@@ -55,6 +44,13 @@ export function defaultSecurityChecks(): SecurityCheck[] {
 				process.env.SECURITY_SCAN_GITLEAKS_LOG_OPTS ?? "--max-count=200",
 			],
 			required: true,
+		},
+	];
+	if (toolExists("zizmor")) {
+		checks.push({
+			name: "workflow-security",
+			command: ["zizmor", ".forgejo/workflows"],
+			required: false,
 		});
 	}
 	return checks;

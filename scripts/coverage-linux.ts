@@ -1,8 +1,12 @@
 #!/usr/bin/env bun
+import { createHash } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { platformFacts } from "./lib/platform.ts";
 import { repoRoot, spawnSync } from "./lib/runtime.ts";
+
+const COVERAGE_SUBPROCESS_TIMEOUT_MS = 300_000;
 
 export type CoverageOptions = {
 	outputDir: string;
@@ -52,6 +56,20 @@ export function resolveRepoChild(
 	if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
 		throw new Error(
 			`${flag} must stay inside the repository and cannot be the repo root`,
+		);
+	}
+	const realRoot = realpathSync(root);
+	let ancestor = dirname(resolved);
+	while (!existsSync(ancestor)) {
+		const parent = dirname(ancestor);
+		if (parent === ancestor) break;
+		ancestor = parent;
+	}
+	const realAncestor = realpathSync(ancestor);
+	const realRel = relative(realRoot, realAncestor);
+	if (realRel.startsWith("..") || isAbsolute(realRel)) {
+		throw new Error(
+			`${flag} resolves through a symlink outside the repository`,
 		);
 	}
 	return resolved;
@@ -121,7 +139,9 @@ export function assertSafeCoverageOutput(
 export function coverageStem(target: string): string {
 	const withoutExt = target.replace(/\.zig$/, "");
 	const stem = withoutExt.replace(/[^A-Za-z0-9_-]/g, "_").replace(/^_+/, "");
-	return stem.length > 0 ? stem : "target";
+	const readable = stem.length > 0 ? stem : "target";
+	const digest = createHash("sha256").update(target).digest("hex").slice(0, 8);
+	return `${readable}_${digest}`;
 }
 
 export function parseCoverageArgs(argv: string[]): CoverageOptions {
@@ -249,11 +269,20 @@ export function zigTestCompileArgs(source: string, output: string): string[] {
 	return ["zig", "test", source, "--test-no-exec", `-femit-bin=${output}`];
 }
 
-function numberFromUnknown(value: unknown): number | null {
-	if (typeof value === "number" && Number.isFinite(value)) return value;
+function numberFromUnknown(
+	value: unknown,
+	opts: { percent?: boolean } = {},
+): number | null {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		if (opts.percent && (value < 0 || value > 100)) return null;
+		return value;
+	}
 	if (typeof value === "string") {
 		const n = Number(value.replace("%", ""));
-		if (Number.isFinite(n)) return n;
+		if (Number.isFinite(n)) {
+			if (opts.percent && (n < 0 || n > 100)) return null;
+			return n;
+		}
 	}
 	return null;
 }
@@ -269,7 +298,7 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 		doc.coverage,
 	];
 	for (const candidate of candidates) {
-		const n = numberFromUnknown(candidate);
+		const n = numberFromUnknown(candidate, { percent: true });
 		if (n !== null) {
 			return {
 				linePercent: n,
@@ -283,8 +312,8 @@ export function parseCoverageSummary(raw: string): CoverageSummary {
 	if (typeof nested === "object" && nested !== null) {
 		const totals = nested as Record<string, unknown>;
 		const n =
-			numberFromUnknown(totals.lines) ??
-			numberFromUnknown(totals.line_coverage);
+			numberFromUnknown(totals.lines, { percent: true }) ??
+			numberFromUnknown(totals.line_coverage, { percent: true });
 		if (n !== null) {
 			return {
 				linePercent: n,
@@ -359,19 +388,25 @@ async function runZigTestCoverage(
 		}
 		const stem = coverageStem(target);
 		const bin = resolve(binDir, `${stem}-test`);
-		const compile = spawnSync(zigTestCompileArgs(source, bin), { cwd: root });
+		const compile = spawnSync(zigTestCompileArgs(source, bin), {
+			cwd: root,
+			timeout: COVERAGE_SUBPROCESS_TIMEOUT_MS,
+		});
 		process.stdout.write(compile.stdout);
 		process.stderr.write(compile.stderr);
 		if (compile.code !== 0) return compile.code ?? 1;
 		const targetOut = resolve(out, stem);
-		const kcov = spawnSync([
-			"kcov",
-			"--clean",
-			`--include-path=${resolve(root, "src")},${resolve(root, "scripts")}`,
-			"--exclude-pattern=.zig-cache,zig-out,node_modules,.git,.jj",
-			targetOut,
-			bin,
-		]);
+		const kcov = spawnSync(
+			[
+				"kcov",
+				"--clean",
+				`--include-path=${resolve(root, "src")},${resolve(root, "scripts")}`,
+				"--exclude-pattern=.zig-cache,zig-out,node_modules,.git,.jj",
+				targetOut,
+				bin,
+			],
+			{ cwd: root, timeout: COVERAGE_SUBPROCESS_TIMEOUT_MS },
+		);
 		process.stdout.write(kcov.stdout);
 		process.stderr.write(kcov.stderr);
 		if (kcov.code !== 0) return kcov.code ?? 1;
@@ -426,6 +461,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 	} else {
 		const run = spawnSync(buildKcovArgs({ ...opts, outputDir: out }), {
 			cwd: root,
+			timeout: COVERAGE_SUBPROCESS_TIMEOUT_MS,
 		});
 		process.stdout.write(run.stdout);
 		process.stderr.write(run.stderr);

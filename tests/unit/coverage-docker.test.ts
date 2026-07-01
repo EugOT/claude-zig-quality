@@ -6,10 +6,22 @@ import {
 
 describe("coverage-docker argument parsing", () => {
 	test("uses fail-closed measured coverage defaults", () => {
-		const opts = parseCoverageDockerArgs([]);
-		expect(opts.build).toBe(true);
-		expect(opts.failUnderLines).toBe("95");
-		expect(opts.image).toBe("claude-zig-quality-kcov:zig0.16-bun1.3.0");
+		const savedThreshold = process.env.ZIG_QM_COVERAGE_THRESHOLD;
+		const savedImage = process.env.ZIG_QM_COVERAGE_IMAGE;
+		delete process.env.ZIG_QM_COVERAGE_THRESHOLD;
+		delete process.env.ZIG_QM_COVERAGE_IMAGE;
+		try {
+			const opts = parseCoverageDockerArgs([]);
+			expect(opts.build).toBe(true);
+			expect(opts.failUnderLines).toBe("95");
+			expect(opts.image).toBe("claude-zig-quality-kcov:zig0.16-bun1.3.0");
+		} finally {
+			if (savedThreshold === undefined)
+				delete process.env.ZIG_QM_COVERAGE_THRESHOLD;
+			else process.env.ZIG_QM_COVERAGE_THRESHOLD = savedThreshold;
+			if (savedImage === undefined) delete process.env.ZIG_QM_COVERAGE_IMAGE;
+			else process.env.ZIG_QM_COVERAGE_IMAGE = savedImage;
+		}
 	});
 
 	test("parses image, platform, no-build, and threshold aliases", () => {

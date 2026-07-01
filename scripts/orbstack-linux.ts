@@ -28,9 +28,14 @@ export function defaultLinuxCommand(repo: string): string {
 	].join(" && ");
 }
 
-function takeValue(argv: string[], index: number, flag: string): string {
+function takeValue(
+	argv: string[],
+	index: number,
+	flag: string,
+	opts: { allowOptionLike?: boolean } = {},
+): string {
 	const value = argv[index + 1];
-	if (!value || value.startsWith("--"))
+	if (!value || (!opts.allowOptionLike && value.startsWith("--")))
 		throw new Error(`${flag} requires a value`);
 	return value;
 }
@@ -59,7 +64,7 @@ export function parseOrbStackArgs(argv: string[]): OrbStackOptions {
 				i++;
 				break;
 			case "--command":
-				command = takeValue(argv, i, arg);
+				command = takeValue(argv, i, arg, { allowOptionLike: true });
 				i++;
 				break;
 			case "--create":

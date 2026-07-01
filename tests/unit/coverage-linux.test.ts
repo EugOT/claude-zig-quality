@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -136,16 +136,26 @@ describe("coverage-linux argument parsing", () => {
 		}
 	});
 
-	test("rejects dangerous output directories", () => {
-		expect(() => resolveRepoChild("/repo", ".", "--output")).toThrow(
+	test("rejects dangerous output directories", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-root-"));
+		expect(() => resolveRepoChild(root, ".", "--output")).toThrow(
 			"cannot be the repo root",
 		);
-		expect(() => resolveRepoChild("/repo", "..", "--output")).toThrow(
+		expect(() => resolveRepoChild(root, "..", "--output")).toThrow(
 			"must stay inside the repository",
 		);
-		expect(resolveRepoChild("/repo", "zig-out/coverage", "--output")).toBe(
-			"/repo/zig-out/coverage",
+		expect(resolveRepoChild(root, "zig-out/coverage", "--output")).toBe(
+			join(root, "zig-out/coverage"),
 		);
+	});
+
+	test("rejects symlink escapes through existing ancestors", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-root-"));
+		const outside = await mkdtemp(join(tmpdir(), "coverage-outside-"));
+		await symlink(outside, join(root, "link"));
+		expect(() =>
+			resolveRepoChild(root, "link/coverage/kcov", "--output"),
+		).toThrow("symlink outside the repository");
 	});
 
 	test("rejects option-looking flag values", () => {
@@ -154,15 +164,16 @@ describe("coverage-linux argument parsing", () => {
 		).toThrow("--summary-output requires a value");
 	});
 
-	test("summary output cannot escape generated summary locations", () => {
-		expect(() => resolveSummaryOutput("/repo", "../summary.json")).toThrow(
+	test("summary output cannot escape generated summary locations", async () => {
+		const root = await mkdtemp(join(tmpdir(), "coverage-root-"));
+		expect(() => resolveSummaryOutput(root, "../summary.json")).toThrow(
 			"must stay inside the repository",
 		);
-		expect(() => resolveSummaryOutput("/repo", "README.md")).toThrow(
+		expect(() => resolveSummaryOutput(root, "README.md")).toThrow(
 			"must stay under coverage/",
 		);
-		expect(resolveSummaryOutput("/repo", "coverage/summary.json")).toBe(
-			"/repo/coverage/summary.json",
+		expect(resolveSummaryOutput(root, "coverage/summary.json")).toBe(
+			join(root, "coverage/summary.json"),
 		);
 	});
 
@@ -190,8 +201,11 @@ describe("coverage-linux argument parsing", () => {
 	});
 
 	test("coverage stems include directory context", () => {
-		expect(coverageStem("src/a/mod.zig")).toBe("src_a_mod");
-		expect(coverageStem("src/b/mod.zig")).toBe("src_b_mod");
+		const a = coverageStem("src/a/mod.zig");
+		const b = coverageStem("src/b/mod.zig");
+		expect(a).toMatch(/^src_a_mod_[0-9a-f]{8}$/);
+		expect(b).toMatch(/^src_b_mod_[0-9a-f]{8}$/);
+		expect(a).not.toBe(b);
 	});
 });
 
@@ -237,5 +251,14 @@ describe("coverage summary parsing", () => {
 			totalLines: null,
 			source: "json",
 		});
+	});
+
+	test("rejects impossible coverage percentages", () => {
+		expect(
+			parseCoverageSummary('{"line_coverage": 101}').linePercent,
+		).toBeNull();
+		expect(
+			parseCoverageSummary('{"totals":{"lines": -1}}').linePercent,
+		).toBeNull();
 	});
 });

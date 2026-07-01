@@ -1,6 +1,6 @@
 # Platform Gate Map
 
-```
+```text
 macOS native                    OrbStack Linux                  CI Linux
 ------------                    --------------                  --------
 fast edit loop                  local Linux proof               merge proof

@@ -23,7 +23,7 @@ jobs:
 
       - name: Install mise
         run: |
-          curl https://mise.run | MISE_VERSION=v2025.11.7 sh
+          curl -fsSL https://mise.run | MISE_VERSION=v2025.11.7 sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install Bun

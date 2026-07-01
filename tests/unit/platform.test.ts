@@ -94,4 +94,17 @@ describe("platform lane detection", () => {
 		expect(facts.ci).toBe(true);
 		expect(facts.coverageAuthority).toBe(true);
 	});
+
+	test("explicit override wins over OrbStack markers", () => {
+		expect(
+			detectPlatform({
+				platform: "linux",
+				env: { ZIG_QM_PLATFORM_LANE: "ci-linux", ORBSTACK: "true" },
+			}),
+		).toEqual({
+			lane: "ci-linux",
+			ci: true,
+			orbstack: false,
+		});
+	});
 });

@@ -735,7 +735,7 @@ function assertWorkflow(program: WorkflowProgram): void {
 			ownedGlobs.push({ thread: thread.id, glob });
 		}
 		for (const forbidden of thread.forbiddenGlobs) {
-			if (thread.writeGlobs.includes(forbidden)) {
+			if (thread.writeGlobs.some((glob) => globsMayOverlap(glob, forbidden))) {
 				throw new Error(`${thread.id} both owns and forbids ${forbidden}`);
 			}
 		}

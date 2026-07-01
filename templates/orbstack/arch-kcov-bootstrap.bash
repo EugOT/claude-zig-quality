@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Template only. Run inside an OrbStack Arch machine as the default Linux user:
 #
-#   orb create arch:current zig-qm-arch
+#   orb create archlinux:base@sha256:068a765646e75e51fe5d544b0f95c85d0322d0a372659e9d5f10fb8402ca53f1 zig-qm-arch
 #   orb -m zig-qm-arch bash /path/to/templates/orbstack/arch-kcov-bootstrap.bash
 #
 # Arch Linux ARM publishes kcov in the regular package repository; this keeps

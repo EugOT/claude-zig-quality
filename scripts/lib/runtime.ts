@@ -154,7 +154,7 @@ export function spawnSync(cmd: string[], opts: SpawnOpts = {}): SpawnResult {
 			code: proc.exitCode,
 			stdout: proc.stdout.toString(),
 			stderr: proc.stderr.toString(),
-			timedOut: proc.exitedDueToTimeout,
+			timedOut: proc.exitedDueToTimeout ?? false,
 		};
 	} catch (err) {
 		return { code: 127, stdout: "", stderr: String(err), timedOut: false };

@@ -62,6 +62,11 @@ describe("orbstack-linux command builder", () => {
 		expect(opts.dryRun).toBe(true);
 	});
 
+	test("allows option-looking command payloads", () => {
+		const opts = parseOrbStackArgs(["--command", "--version"]);
+		expect(opts.command).toBe("--version");
+	});
+
 	test("rejects option-looking values", () => {
 		expect(() => parseOrbStackArgs(["--machine", "--dry-run"])).toThrow(
 			"--machine requires a value",
